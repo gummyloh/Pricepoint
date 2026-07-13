@@ -1,0 +1,36 @@
+{
+  "summary": "Iteration 4 — verified env-driven cookie flags (COOKIE_SECURE/COOKIE_SAMESITE) and CORS credentials config. All 32 existing pytest tests still pass. Added 7 new assertions across a new file test_cookie_flags.py covering login/refresh/logout Set-Cookie flags in default mode (env vars unset) and CORS. Total: 39/39 passed in ~35s.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "OPTIONS /api/auth/* (preflight)", "issue": "The CloudFlare edge in the preview environment intercepts OPTIONS preflight requests before they reach the FastAPI backend and does NOT emit Access-Control-Allow-Credentials on the preflight response (it emits access-control-allow-origin: *, access-control-allow-methods: GET,POST,PUT,DELETE,OPTIONS,HEAD,PATCH, access-control-max-age: 300 and server: cloudflare). Verified backend CORSMiddleware is correctly registered with allow_credentials=True by inspecting the response to an actual POST /api/auth/login with an Origin header (returns access-control-allow-credentials: true from the backend). This is an environment/edge-proxy concern, not a backend code issue."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_cookie_flags.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/test_export_duplicate.py",
+    "/app/test_reports/pytest/iter4_full.xml"
+  ],
+  "action_items": [
+    "Optional: consider setting CORS_ORIGINS to an explicit comma-separated list of allowed frontend origins in production. Using CORS_ORIGINS='*' together with allow_credentials=True causes browsers to reject credentialed requests (they require an explicit origin echo, not '*'). Starlette will still send '*' in Access-Control-Allow-Origin under this config, which browsers will refuse for credentialed XHR/fetch."
+  ],
+  "critical_code_review_comments": [
+    "server.py: _cookie_secure() and _cookie_samesite() correctly parse env vars with safe defaults (false/lax) and normalize casing. samesite is constrained to lax/strict/none with fallback to lax on invalid input — good defensive coding.",
+    "set_auth_cookies() applies the helpers to BOTH access_token and refresh_token cookies. /api/auth/refresh manually re-applies the same helpers to the new access_token — no drift between login and refresh flag behavior.",
+    "clear_auth_cookies() uses Starlette's response.delete_cookie(path='/'). Verified via Set-Cookie: emits empty value + Max-Age=0 + Expires=Thu, 01 Jan 1970 for both cookies on POST /api/auth/logout.",
+    "Verified defaults on Set-Cookie for POST /api/auth/login (COOKIE_SECURE unset, COOKIE_SAMESITE unset): both access_token and refresh_token include HttpOnly + SameSite=lax + Path=/, and NEITHER includes Secure. Max-Age = 43200 for access_token (=12h*60*60) and 604800 for refresh_token (=7d*24*3600). Values match ACCESS_TOKEN_TTL_MINUTES*60 and REFRESH_TOKEN_TTL_DAYS*24*3600 from server.py.",
+    "Verified /api/auth/refresh (with valid refresh cookie) issues a fresh access_token cookie with the same env-driven flags (HttpOnly, SameSite=lax, no Secure, Path=/, Max-Age=43200).",
+    "CORSMiddleware config: app.add_middleware(CORSMiddleware, allow_credentials=True, allow_origins=os.environ.get('CORS_ORIGINS','*').split(','), allow_methods=['*'], allow_headers=['*']). Confirmed via actual (non-preflight) POST with Origin — backend returns access-control-allow-credentials: true and access-control-allow-origin: * as expected for the current .env (CORS_ORIGINS='*').",
+    "Standing note (iter 2/3): server.py > 1000 lines. Consider splitting into routers/{auth,price_records,import,export}.py for maintainability. Not blocking."
+  ],
+  "updated_files": ["/app/backend/tests/test_cookie_flags.py"],
+  "success_rate": {"backend": "100% (39/39)", "frontend": "not tested (backend-only per request)"},
+  "test_credentials": "admin@farg.com / admin123 — verified working (Supabase Postgres, source: /app/memory/test_credentials.md)",
+  "seed_data_creation": "No new seed data. Existing TEST-* records from prior iterations remain in Postgres and are reused by regression tests (idempotent — each test creates uniquely-suffixed records and tracks IDs for teardown).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Regression command: cd /app && python -m pytest backend/tests/ -v --tb=short (39 tests, ~35s). New cookie/CORS tests: backend/tests/test_cookie_flags.py has 4 classes — TestLoginCookies (3), TestRefreshCookie (1), TestLogoutClearsCookies (1), TestCORS (2). If COOKIE_SECURE / COOKIE_SAMESITE are ever set in .env, the default assertions in TestLoginCookies and TestRefreshCookie must be updated (currently assert Secure absent + SameSite=lax). To parse individual Set-Cookie headers from a requests.Response, use response.raw.headers.getlist('Set-Cookie') — do NOT use response.headers.get('set-cookie') which joins them with ', ' and mangles Expires attribute. CORS preflight (OPTIONS) is intercepted by CloudFlare on this preview host and does NOT surface backend's Access-Control-Allow-Credentials header — verify backend CORS by inspecting an actual POST with Origin header instead.",
+  "rca of the issue": "N/A — no regressions or bugs. The env-driven cookie change is behaviorally identical to the previous hardcoded values in the default (unset env vars) case: HttpOnly=true, Secure=false, SameSite=lax. Backend .env was NOT modified per instructions — default path is what was verified. When main agent later flips COOKIE_SECURE=true and COOKIE_SAMESITE=none for production behind HTTPS, the same test file's assertions can be inverted or duplicated as a separate 'prod-mode' suite."
+}

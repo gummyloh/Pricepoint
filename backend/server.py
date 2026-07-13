@@ -63,6 +63,20 @@ def get_jwt_secret() -> str:
     return os.environ["JWT_SECRET"]
 
 
+def _cookie_secure() -> bool:
+    return os.environ.get("COOKIE_SECURE", "false").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
+def _cookie_samesite() -> str:
+    v = os.environ.get("COOKIE_SAMESITE", "lax").strip().lower()
+    return v if v in ("lax", "strict", "none") else "lax"
+
+
 # ---------- Models ----------
 def _uuid_to_str(v: Any) -> str:
     if isinstance(v, uuid.UUID):
@@ -189,12 +203,14 @@ def create_refresh_token(user_id: str) -> str:
 
 
 def set_auth_cookies(response: Response, access: str, refresh: str) -> None:
+    secure = _cookie_secure()
+    samesite = _cookie_samesite()
     response.set_cookie(
         key="access_token",
         value=access,
         httponly=True,
-        secure=False,
-        samesite="lax",
+        secure=secure,
+        samesite=samesite,
         max_age=ACCESS_TOKEN_TTL_MINUTES * 60,
         path="/",
     )
@@ -202,8 +218,8 @@ def set_auth_cookies(response: Response, access: str, refresh: str) -> None:
         key="refresh_token",
         value=refresh,
         httponly=True,
-        secure=False,
-        samesite="lax",
+        secure=secure,
+        samesite=samesite,
         max_age=REFRESH_TOKEN_TTL_DAYS * 24 * 3600,
         path="/",
     )
@@ -420,8 +436,8 @@ async def refresh_token_endpoint(request: Request, response: Response):
         key="access_token",
         value=new_access,
         httponly=True,
-        secure=False,
-        samesite="lax",
+        secure=_cookie_secure(),
+        samesite=_cookie_samesite(),
         max_age=ACCESS_TOKEN_TTL_MINUTES * 60,
         path="/",
     )
