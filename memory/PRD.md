@@ -33,14 +33,24 @@ Admins currently keep project/CPQ pricing in Excel. To answer "what have we quot
 - `price_records`: `{ part_no, unit_price, cpq_number, cpq_date(YYYY-MM-DD), customer, cpq_price, notes, created_by, created_by_name, created_at, updated_at }`
 - Indexes: users.email(unique), price_records.{part_no, cpq_number, customer, cpq_date}.
 
-## Testing (iteration 1)
-- Backend: 21/21 pytest cases pass (auth guards, CRUD, batch, search, by-part, stats, import preview+commit).
-- Frontend: 10/10 Playwright flows pass (bootstrap→register→dashboard, login/wrong, search, add multi-line CPQ, part detail edit + delete, CSV import, invite user, logout).
+## Testing (iteration 2 — 2026-02)
+- Backend: **32/32 pytest** (21 auth/CRUD/import + 11 new for export + duplicate).
+- Frontend: **9/9 Playwright flows** for the new features (export download, dashboard + part-detail duplicate, Enter-to-add, duplicate-name / source==target guards).
 
 ## Prioritized Backlog
 - **P1** — Access control roles (viewer vs admin) once more people use it (open question in spec).
 - **P1** — Optional per-customer restrictions per admin (open question).
-- **P2** — Export CPQ history to Excel/CSV (mirror the import).
+- **P2** — Bulk edit / duplicate a CPQ across customers. ✅ *Done 2026-02*
+- **P2** — Export CPQ history to Excel. ✅ *Done 2026-02*
+- **P2** — Rate limiting on `/api/auth/login` (currently no lockout after N failures).
+- **P3** — Approval workflow for price changes (mentioned as out-of-scope).
+- **P3** — Include historic sales-order price alongside CPQ price (mentioned as out-of-scope).
+
+## Next Action Items
+1. Add real historical Excel data via `/import` to validate column auto-mapping against real column names.
+2. Invite the rest of the CPQ team from the Users page.
+3. Consider export + role-based restrictions once >5 users are on board.
+history to Excel/CSV (mirror the import).
 - **P2** — Bulk edit / duplicate a CPQ across customers.
 - **P2** — Rate limiting on `/api/auth/login` (currently no lockout after N failures).
 - **P3** — Approval workflow for price changes (mentioned as out-of-scope).
