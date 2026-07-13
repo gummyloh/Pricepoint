@@ -1,0 +1,106 @@
+{
+  "project_name": "FARG Price Lookup App",
+  "theme": "Light mode preferred for data clarity, but support Dark mode toggle.",
+  "archetype": "Swiss & High-Contrast (Authority, Clarity, Truth)",
+  "typography": {
+    "headings": "Cabinet Grotesk",
+    "body": "Manrope",
+    "monospace": "JetBrains Mono",
+    "rules": [
+      "BANNED: Inter, Roboto, Open Sans for headings.",
+      "CRITICAL: All currency (RM 1,234.56), Part Numbers, and CPQ Numbers MUST use JetBrains Mono for vertical alignment and scanning.",
+      "Headings must use tracking-tight.",
+      "Table headers and small labels must use uppercase, font-bold, and tracking-[0.2em]."
+    ]
+  },
+  "colors": {
+    "primary": "#0F172A",
+    "brand_accent": "#2563EB",
+    "background": "#F8FAFC",
+    "surface": "#FFFFFF",
+    "border": "#E2E8F0",
+    "text": {
+      "primary": "#020617",
+      "secondary": "#475569"
+    },
+    "status": {
+      "positive": "#16A34A",
+      "negative": "#DC2626"
+    },
+    "rules": [
+      "Use Tinted Greys. Never use pure #000000 or #808080.",
+      "BANNED: Teal Green or Teal Blue (#1B93A4) - strictly forbidden for this dashboard.",
+      "Color is function. 95% of the UI should be monochrome. Use the brand accent only to guide action (primary buttons, active tabs)."
+    ]
+  },
+  "surface_strategies": [
+    "Grid Borders (The Technical Look): Use visible grid lines for the data-heavy sections. border-collapse on tables with subtle right/bottom borders.",
+    "Flat Solid Surfaces: Do not use soft fuzzy drop shadows on cards. Use 1px solid border (border-border). For hover states, use a crisp translation (-translate-y-px) and a sharper shadow (shadow-sm)."
+  ],
+  "layouts": {
+    "login": "Split Screen. Left: Abstract geometric visual (use provided media URL). Right: Clean login form aligned to the center. Generous padding (p-12 to p-24).",
+    "search_home": "Centered layout (max-w-7xl). The Search Bar is the Hero - make it massive (text-2xl) and centered at the top. Below it, a sleek, dense data table.",
+    "part_detail": "Bento Grid approach. Top section: Current Unit Price (massive text) and Part Meta info. Bottom section: Full width chronological table of CPQ history. Optional: a Recharts line chart showing price trend over time.",
+    "add_edit_form": "Shadcn Form. Implement a dynamic list (add multiple line items) under a single CPQ input. Use a card-like layout for each line item.",
+    "excel_import": "Large drag-and-drop zone with a dashed border. Upon parsing, render a simplified preview table to confirm mappings before final import.",
+    "spacing": "External container spacing must be generous (p-8 to p-12). Internal tabular data spacing must be dense (py-2 px-3)."
+  },
+  "components": {
+    "tables": "Shadcn UI Table. Implement sticky headers. Row hover state (hover:bg-slate-50). Text left-aligned for data, right-aligned for numbers/currency.",
+    "forms": "Shadcn UI Form, Input, Select. Never use native raw inputs.",
+    "buttons": "Crisp geometry (rounded-md). Always explicitly set hover states (hover:bg-slate-900 hover:text-white).",
+    "dialogs": "Use Shadcn Dialog for the Edit Price form or mapping preview if it doesn't fit inline."
+  },
+  "motion": {
+    "rules": [
+      "Micro-interactions: Buttons should have a slight scale/transform on active/hover.",
+      "Layout animations: Expanding table rows or adding new line items must animate smoothly (framer-motion).",
+      "No universal transitions. Apply strictly to target properties.",
+      "Respect prefers-reduced-motion."
+    ]
+  },
+  "media": {
+    "login_background": {
+      "url": "https://images.unsplash.com/photo-1454117096348-e4abbeba002c?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NjV8MHwxfHNlYXJjaHwxfHxhYnN0cmFjdCUyMGdlb21ldHJpYyUyMHN1YnRsZXxlbnwwfHx8fDE3ODM5MjY1NTl8MA&ixlib=rb-4.1.0&q=85",
+      "description": "Minimalist abstract geometric surface",
+      "usage": "Use as a full-height image on the left side of the Login screen."
+    }
+  },
+  "icons": {
+    "library": "lucide-react",
+    "rules": [
+      "Keep stroke widths consistent.",
+      "BANNED: Emoji characters for icons."
+    ]
+  },
+  "accessibility": {
+    "rules": [
+      "All interactive elements MUST include a `data-testid` attribute (e.g., data-testid='login-submit-button').",
+      "Announce sorting and filtering changes via screen-reader live regions.",
+      "Focus states must be highly visible (focus:ring-2 focus:ring-offset-2)."
+    ]
+  },
+  "instructions_to_main_agent": [
+    "CRITICAL: The codebase uses .js and .jsx files, not .tsx. Do not use TypeScript interfaces or types.",
+    "All currency must be strictly formatted as 'RM 1,234.56'.",
+    "Implement Sonner (`/app/src/components/ui/sonner.jsx` or similar path) for all toast notifications (Login, Import, Save).",
+    "DO NOT use complete transparent backgrounds for the sticky header or overlapping dropdowns. Use solid bg or backdrop-blur.",
+    "The Part Detail comparison view is the core value proposition: make the distinction between the current list price and the CPQ historical price aggressively clear.",
+    "Do not add `.App { text-align: center; }` to the CSS."
+  ],
+  "GENERAL UI UX DESIGN GUIDELINES": [
+    "You tend to converge toward generic, 'on distribution' outputs. Avoid this: make creative, distinctive frontends.",
+    "Dark colors look good when used independently without gradients. DO NOT use dark colors as gradients.",
+    "Don't make generic centered layouts, simplistic gradients, and uniform styling.",
+    "Create depth through layered design elements with z-index hierarchy.",
+    "Use glass-morphism effects with backdrop filters (12-24px blur) sparingly.",
+    "You MUST NOT apply universal transition. Eg: `transition: all`. Always add transitions for specific interactive elements.",
+    "You MUST NOT center align the app container. This disrupts the human natural reading flow of text.",
+    "Always use modern button styles like pill-shaped, or sharp button with interaction animations.",
+    "NEVER: use AI assistant Emoji characters like robot, brain, lightbulb, target etc for icons.",
+    "Every interaction needs micro-animations - hover states, transitions, entrance animations. Static = dead.",
+    "Use 2-3x more spacing than feels comfortable outside of the tables.",
+    "Prioritize using pre-existing components from src/components/ui when applicable.",
+    "All interactive and key informational elements MUST include a `data-testid` attribute to facilitate robust automated testing."
+  ]
+}
