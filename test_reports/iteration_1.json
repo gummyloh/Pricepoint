@@ -1,0 +1,42 @@
+{
+  "summary": "Full end-to-end testing of FARG Price Lookup App (backend + frontend). 21/21 backend pytest tests pass and all 10 requested frontend flows verified via Playwright. App is working as specified.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/auth/login (& /register, /auth/me)", "issue": "UserPublic response returns '_id' (the alias) instead of 'id'. Not a functional bug — frontend UsersPage already uses u._id — but inconsistent with other endpoints (price-records use 'id'). Consider making UserPublic serialize as 'id' via model_config populate_by_name / by_alias=False for consistency."},
+      {"endpoint": "CORS", "issue": "backend/.env has CORS_ORIGINS=\"*\" while allow_credentials=True. Works today only because frontend calls same-origin via ingress (relative baseURL), but if a browser ever calls cross-origin, browsers reject wildcard + credentials. Recommend setting explicit origin(s)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Top nav / Toaster", "issues": ["Sonner toast at top-right visually overlaps the user info + Sign out area on the topbar for ~2s after login/success. Minor — toast dismisses on its own, but consider position='top-center' or shifting toast below header."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "(Optional) Return 'id' instead of '_id' from user endpoints for consistency with price-records serializer.",
+    "(Optional) Restrict CORS_ORIGINS to the specific frontend origin(s) instead of '*' since allow_credentials=True.",
+    "(Cosmetic) Reposition Toaster or reduce duration so it does not visually overlap top-right user/logout."
+  ],
+  "critical_code_review_comments": [
+    "server.py is ~660 lines and mixes auth, price-records, users, import, stats — acceptable for now but consider splitting into routers/auth.py, routers/records.py, routers/import.py once it exceeds 700.",
+    "cookies use secure=False — fine for local/preview HTTP, but before production ensure secure=True and samesite='none' (or 'lax' behind same-origin proxy).",
+    "No brute-force / rate limiting on /api/auth/login (playbook checklist item). Consider adding a simple lockout after 5 failed attempts.",
+    "Frontend Toaster position='top-right' overlaps header actions; minor UX polish item."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py (created)"
+  ],
+  "success_rate": {"backend": "100% (21/21)", "frontend": "100% (10/10 flows)"},
+  "test_credentials": "admin@farg.com / admin123 (works; found in /app/memory/test_credentials.md)",
+  "seed_data_creation": "Tests created several TEST_/E2E_ records and one invited user (e2e_inv_*@farg.com). Price-record test data is cleaned up in fixture teardown; invited users are left in DB (no delete-user endpoint).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend regression suite at /app/backend/tests/backend_test.py. Run with: REACT_APP_BACKEND_URL=<url> python -m pytest backend/tests/backend_test.py -v. Covers auth (bootstrap/register-closed/login/logout/me/invite), price-records CRUD, batch, by-part, search, stats, import preview+commit, unauthorized guards. All 21 tests currently pass. Frontend flows verified via Playwright: login (wrong+correct), dashboard stats + search, add multi-line CPQ, part detail (edit + delete with window.confirm auto-accepted), users invite, CSV import (auto-mapping + preview + commit), logout, and /register→/login redirect when users exist. Currency displays as RM x,xxx.xx and discount % is correct.",
+  "rca of the issue": "No blocking issues. Minor observations: (1) UserPublic uses alias='_id' so serialization returns '_id'; frontend already handles this, but breaks the codebase convention. (2) CORS wildcard + credentials would fail in a real cross-origin browser call; works now due to same-origin proxy."
+}
