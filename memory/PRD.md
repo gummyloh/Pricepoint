@@ -1,4 +1,4 @@
-# FARG Price Lookup App — PRD
+# Pricepoint (CPQ Price Lookup) — PRD
 
 ## Original Problem Statement
 Admins currently keep project/CPQ pricing in Excel. To answer "what have we quoted this part for before," they manually open the file and search for a Part No or CPQ#, then eyeball prices across rows. This app replaces that with a searchable tool: log in, look up a part, and instantly see the list price next to every CPQ price it's ever had, across customers and time periods.

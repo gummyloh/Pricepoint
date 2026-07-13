@@ -46,8 +46,8 @@ export default function LoginPage() {
         <div className="absolute inset-0 bg-slate-950/55" />
         <div className="relative h-full flex flex-col justify-between p-12 lg:p-16 text-white">
           <div className="flex items-baseline gap-2">
-            <span className="font-display text-2xl font-bold">FARG</span>
-            <span className="eyebrow text-white/60">Price Lookup</span>
+            <span className="font-display text-2xl font-bold">Pricepoint</span>
+            <span className="eyebrow text-white/60">CPQ history</span>
           </div>
           <div>
             <p className="eyebrow text-white/60 mb-4">The single source of price truth</p>

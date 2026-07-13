@@ -25,9 +25,9 @@ export default function Layout() {
             className="flex items-baseline gap-2"
           >
             <span className="font-display text-xl font-bold tracking-tight text-slate-950">
-              FARG
+              Pricepoint
             </span>
-            <span className="eyebrow text-slate-500">Price Lookup</span>
+            <span className="eyebrow text-slate-500">CPQ history</span>
           </Link>
           <nav className="hidden md:flex items-center gap-1">
             {links.map(({ to, label, testid, Icon }) => (
@@ -78,7 +78,7 @@ export default function Layout() {
       </main>
       <footer className="border-t border-slate-200 py-6 text-center">
         <p className="eyebrow text-slate-400">
-          FARG · Internal Pricing Reference · MYR
+          Pricepoint · Internal Pricing Reference · MYR
         </p>
       </footer>
     </div>
