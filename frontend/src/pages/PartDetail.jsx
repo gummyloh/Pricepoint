@@ -19,11 +19,14 @@ import {
   Trash2,
   TrendingDown,
   Package,
+  Copy,
 } from "lucide-react";
 import { formatMYR, formatDate, formatPct } from "@/lib/format";
 import { toast } from "sonner";
 import { PART } from "@/constants/testIds/farg";
 import EditRecordDialog from "@/components/EditRecordDialog";
+import ExportButton from "@/components/ExportButton";
+import DuplicateCPQDialog from "@/components/DuplicateCPQDialog";
 import {
   LineChart,
   Line,
@@ -40,6 +43,7 @@ export default function PartDetail() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null);
+  const [dupTarget, setDupTarget] = useState(null);
 
   const load = async () => {
     setLoading(true);
@@ -114,6 +118,14 @@ export default function PartDetail() {
       >
         <ArrowLeft className="h-4 w-4" /> Back to lookup
       </Link>
+
+      <div className="flex items-center justify-end mb-4">
+        <ExportButton
+          testId="part-export-btn"
+          label="Export part history"
+          params={{ part_no: data.part_no }}
+        />
+      </div>
 
       {/* Hero: bento grid */}
       <div
@@ -314,6 +326,21 @@ export default function PartDetail() {
                       <Button
                         size="icon"
                         variant="ghost"
+                        title="Duplicate CPQ to another customer"
+                        data-testid={`part-duplicate-${r.id}`}
+                        onClick={() =>
+                          setDupTarget({
+                            cpqNumber: r.cpq_number,
+                            sourceCustomer: r.customer,
+                          })
+                        }
+                        className="h-8 w-8"
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
                         data-testid={PART.editBtn(r.id)}
                         onClick={() => setEditing(r)}
                         className="h-8 w-8"
@@ -345,6 +372,19 @@ export default function PartDetail() {
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
+            load();
+          }}
+        />
+      )}
+
+      {dupTarget && (
+        <DuplicateCPQDialog
+          open={!!dupTarget}
+          cpqNumber={dupTarget.cpqNumber}
+          sourceCustomer={dupTarget.sourceCustomer}
+          onClose={() => setDupTarget(null)}
+          onDone={() => {
+            setDupTarget(null);
             load();
           }}
         />

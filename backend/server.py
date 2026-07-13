@@ -28,8 +28,11 @@ from fastapi import (
     Query,
 )
 from starlette.middleware.cors import CORSMiddleware
+from starlette.responses import StreamingResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, EmailStr, BeforeValidator, ConfigDict
+from openpyxl import Workbook
+from openpyxl.styles import Font, Alignment, PatternFill
 
 # ---------- MongoDB ----------
 mongo_url = os.environ["MONGO_URL"]
@@ -129,6 +132,14 @@ class ImportRow(BaseModel):
 
 class ImportCommit(BaseModel):
     rows: List[ImportRow]
+
+
+class DuplicateCPQInput(BaseModel):
+    cpq_number: str
+    source_customer: str
+    target_customers: List[str] = Field(min_length=1)
+    new_cpq_number: Optional[str] = None
+    new_cpq_date: Optional[str] = None
 
 
 # ---------- Password Helpers ----------
@@ -641,6 +652,157 @@ async def stats(user: dict = Depends(get_current_user)):
         "distinct_customers": distinct_customers,
         "distinct_cpq": distinct_cpq,
     }
+
+
+# ---------- Duplicate CPQ across customers ----------
+@api.post("/price-records/duplicate")
+async def duplicate_cpq(
+    input: DuplicateCPQInput, user: dict = Depends(get_current_user)
+):
+    source_rows = await db.price_records.find(
+        {"cpq_number": input.cpq_number, "customer": input.source_customer}
+    ).to_list(1000)
+    if not source_rows:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No records found for CPQ '{input.cpq_number}' + customer '{input.source_customer}'",
+        )
+    targets = [c.strip() for c in input.target_customers if c and c.strip()]
+    if not targets:
+        raise HTTPException(status_code=400, detail="No target customers")
+
+    new_cpq_number = (
+        input.new_cpq_number.strip() if input.new_cpq_number else input.cpq_number
+    )
+    new_cpq_date = (
+        parse_iso_date(input.new_cpq_date)
+        if input.new_cpq_date
+        else source_rows[0].get("cpq_date")
+    )
+    now = datetime.now(timezone.utc)
+    new_docs = []
+    for target in targets:
+        for src in source_rows:
+            new_docs.append(
+                {
+                    "part_no": src["part_no"],
+                    "unit_price": float(src.get("unit_price", 0)),
+                    "cpq_number": new_cpq_number,
+                    "cpq_date": new_cpq_date,
+                    "customer": target,
+                    "cpq_price": float(src.get("cpq_price", 0)),
+                    "notes": src.get("notes", ""),
+                    "created_by": user["_id"],
+                    "created_by_name": user.get("name") or user.get("email"),
+                    "created_at": now,
+                    "updated_at": now,
+                }
+            )
+    result = await db.price_records.insert_many(new_docs)
+    return {
+        "inserted": len(result.inserted_ids),
+        "new_cpq_number": new_cpq_number,
+        "target_customers": targets,
+    }
+
+
+# ---------- Excel Export ----------
+def _build_xlsx(rows: List[dict], title: str = "Price Records") -> bytes:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = title[:31]
+    headers = [
+        "Part No",
+        "CPQ #",
+        "CPQ Date",
+        "Customer",
+        "Unit Price (RM)",
+        "CPQ Price (RM)",
+        "Discount %",
+        "Notes",
+        "Created By",
+        "Created At",
+    ]
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill("solid", fgColor="0F172A")
+    for col, h in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=h)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="left", vertical="center")
+
+    for r_idx, r in enumerate(rows, 2):
+        ws.cell(row=r_idx, column=1, value=r.get("part_no", ""))
+        ws.cell(row=r_idx, column=2, value=r.get("cpq_number", ""))
+        ws.cell(row=r_idx, column=3, value=r.get("cpq_date", ""))
+        ws.cell(row=r_idx, column=4, value=r.get("customer", ""))
+        ws.cell(row=r_idx, column=5, value=float(r.get("unit_price", 0) or 0))
+        ws.cell(row=r_idx, column=6, value=float(r.get("cpq_price", 0) or 0))
+        ws.cell(row=r_idx, column=7, value=float(r.get("discount_pct", 0) or 0))
+        ws.cell(row=r_idx, column=8, value=r.get("notes", ""))
+        ws.cell(row=r_idx, column=9, value=r.get("created_by_name", ""))
+        created = r.get("created_at")
+        if isinstance(created, datetime):
+            created = created.strftime("%Y-%m-%d %H:%M")
+        ws.cell(row=r_idx, column=10, value=str(created or ""))
+
+    # Currency + pct formatting
+    for row in ws.iter_rows(min_row=2, min_col=5, max_col=6):
+        for cell in row:
+            cell.number_format = '"RM " #,##0.00'
+    for row in ws.iter_rows(min_row=2, min_col=7, max_col=7):
+        for cell in row:
+            cell.number_format = "0.00\\%"
+
+    widths = [16, 18, 12, 22, 16, 16, 12, 30, 18, 18]
+    for i, w in enumerate(widths, 1):
+        ws.column_dimensions[chr(64 + i) if i <= 26 else "A" + chr(64 + i - 26)].width = w
+    ws.freeze_panes = "A2"
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf.read()
+
+
+@api.get("/export/xlsx")
+async def export_xlsx(
+    q: Optional[str] = None,
+    part_no: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+):
+    query: dict = {}
+    if part_no:
+        query["part_no"] = part_no
+    elif q:
+        term = q.strip()
+        query = {
+            "$or": [
+                {"part_no": {"$regex": term, "$options": "i"}},
+                {"cpq_number": {"$regex": term, "$options": "i"}},
+                {"customer": {"$regex": term, "$options": "i"}},
+            ]
+        }
+    docs = (
+        await db.price_records.find(query)
+        .sort([("cpq_date", -1), ("created_at", -1)])
+        .to_list(10000)
+    )
+    rows = [serialize_price_record(d) for d in docs]
+    title = f"Part {part_no}" if part_no else "Price Records"
+    xlsx_bytes = _build_xlsx(rows, title=title)
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
+    filename = (
+        f"farg-part-{part_no}-{stamp}.xlsx"
+        if part_no
+        else f"farg-price-records-{stamp}.xlsx"
+    )
+    return StreamingResponse(
+        io.BytesIO(xlsx_bytes),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ---------- Mount ----------

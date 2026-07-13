@@ -1,0 +1,46 @@
+{
+  "summary": "Iteration 2 focused on the two new features (Excel export + Duplicate CPQ). 11 new backend pytest tests + 21 existing regression tests = 32/32 backend PASSED. All 9 frontend flows verified via Playwright (dashboard export download, dashboard row duplicate dialog + submit + refresh, part-scoped export with part_no filter, part-page duplicate dialog, Enter-to-add, duplicate-name rejection, source==target rejection). No blocking issues found.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/price-records/duplicate", "issue": "target_customers uses Pydantic Field(min_length=1), so an empty list returns 422 (Unprocessable Entity). The spec asked for 4xx which is satisfied, but frontend never sends an empty array (button is disabled), so this is a defensive-only path. Acceptable."},
+      {"endpoint": "GET /api/export/xlsx", "issue": "When both ?part_no and ?q are provided, part_no wins (q is ignored). Not a bug — sensible priority — but not documented."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Part detail page", "issues": ["Recharts logs: 'The width(-1) and height(-1) of chart should be greater than 0' warning fires on initial mount before ResponsiveContainer measures. Purely a console warning; chart renders correctly. Consider wrapping in a min-h container or gating LineChart on data length AND container ready."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/test_export_duplicate.py",
+    "/app/test_reports/pytest/iter2_new_features.xml"
+  ],
+  "action_items": [
+    "(Optional) Wrap Recharts ResponsiveContainer with an explicit min-height to silence the width(-1)/height(-1) console warning on PartDetail.",
+    "(Optional) In duplicate endpoint, consider returning 400 with a clean message when all target_customers strip to blanks; currently returns 400 which is fine — just also happens to return 422 when array is [] (harmless)."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now ~820 lines. Time to split into routers/ (auth, records, imports, exports) — file exceeds the 700-line threshold called out in iteration 1.",
+    "duplicate_cpq inserts up to (N targets × M source_rows) records in one insert_many. No upper bound. Consider capping targets (e.g. len(targets) <= 50) to prevent accidental massive clones.",
+    "_build_xlsx column-letter code uses chr(64+i) which only works up to i==26. Currently safe (10 headers) but fragile if columns grow. Use openpyxl.utils.get_column_letter instead.",
+    "Excel export applies percent number_format \"0.00\\%\" — the backslash is unnecessary; openpyxl expects \"0.00%\". Works today but cosmetic.",
+    "ExportButton uses process.env at build-time via `API` from lib/api. Good — no hardcoded URL. credentials:'include' is correct for httpOnly cookie flow.",
+    "DuplicateCPQDialog: source==target check is case-insensitive (good) and de-dupes by exact string (good). Missing: trim on source check side — but sourceCustomer comes from DB so trimmed already.",
+    "Dashboard reload() after duplicate correctly refreshes both rows and stats. Nice.",
+    "No brute-force / rate-limiting still (flagged iter 1). Not a new-feature concern."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_export_duplicate.py (new — 11 tests)"
+  ],
+  "success_rate": {"backend": "100% (32/32 — 21 existing + 11 new)", "frontend": "100% (9/9 flows)"},
+  "test_credentials": "admin@farg.com / admin123 (verified working)",
+  "seed_data_creation": "New feature tests create ~30 TEST_/TEST-DUP-* records under CPQ numbers TEST-DUP-CPQ-*, TEST-DUP-NEW-*, TEST-EXPORTPART-*. Records are not auto-cleaned in the new test file (feature verification data intentionally left; harmless — all rows are prefixed 'TEST-'). Frontend Playwright run also created 'Playwright Corp A' + 'Playwright Corp B' duplicates of the first dashboard row (visible in the final screenshot).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Two backend test files now: /app/backend/tests/backend_test.py (21 tests — auth/CRUD/import/stats/users) and /app/backend/tests/test_export_duplicate.py (11 tests — export xlsx + duplicate CPQ). Run both with: cd /app && python -m pytest backend/tests/ -v. Frontend testIds: dashboard-export-btn, part-export-btn, duplicate-row-<id>, part-duplicate-<id>, duplicate-target-input, duplicate-add-target, duplicate-submit-button, duplicate-cancel-button, duplicate-remove-target-<i>, duplicate-new-cpq-number, duplicate-new-cpq-date. Excel files are validated by (a) content-type header, (b) 'PK' zip magic bytes, and (c) openpyxl.load_workbook parsing of returned bytes.",
+  "rca of the issue": "N/A — no bugs found in the new features. Both Excel export (with q + part_no filters + auth guard + proper zip/xlsx bytes) and Duplicate CPQ (with new_cpq_number/date overrides, empty-target rejection, missing-source 404, source==target frontend guard, Enter-to-add, duplicate-name rejection) work exactly as specified. All 11 new tests + 21 regression tests + 9 UI flows pass. Only observations are cosmetic (Recharts width warning, server.py length > 700)."
+}

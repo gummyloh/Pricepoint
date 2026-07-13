@@ -14,15 +14,18 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { toast } from "sonner";
-import { Search as SearchIcon, ArrowUpRight } from "lucide-react";
+import { Search as SearchIcon, ArrowUpRight, Copy } from "lucide-react";
 import { formatMYR, formatDate, formatPct } from "@/lib/format";
 import { SEARCH } from "@/constants/testIds/farg";
+import ExportButton from "@/components/ExportButton";
+import DuplicateCPQDialog from "@/components/DuplicateCPQDialog";
 
 export default function Dashboard() {
   const [q, setQ] = useState("");
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState(null);
+  const [dupTarget, setDupTarget] = useState(null);
 
   useEffect(() => {
     api.get("/stats").then((r) => setStats(r.data)).catch(() => {});
@@ -46,6 +49,18 @@ export default function Dashboard() {
   }, [q]);
 
   const empty = !loading && rows.length === 0;
+
+  const reload = async () => {
+    try {
+      const { data } = await api.get("/price-records", {
+        params: q ? { q } : {},
+      });
+      setRows(data);
+    } catch (err) {
+      toast.error(formatApiError(err));
+    }
+    api.get("/stats").then((r) => setStats(r.data)).catch(() => {});
+  };
 
   return (
     <div className="mx-auto max-w-[1400px] px-6 lg:px-10 py-10 lg:py-14">
@@ -104,7 +119,16 @@ export default function Dashboard() {
               </Badge>
             )}
           </div>
-          <p className="text-xs text-slate-500">Sorted by CPQ date · newest first</p>
+          <div className="flex items-center gap-3">
+            <p className="text-xs text-slate-500 hidden md:block">
+              Sorted by CPQ date · newest first
+            </p>
+            <ExportButton
+              testId="dashboard-export-btn"
+              label="Export Excel"
+              params={q ? { q } : {}}
+            />
+          </div>
         </div>
         {loading ? (
           <div className="p-5 space-y-3">
@@ -140,7 +164,9 @@ export default function Dashboard() {
                   <TableHead className="eyebrow text-slate-600 text-right">
                     Discount
                   </TableHead>
-                  <TableHead />
+                  <TableHead className="eyebrow text-slate-600 text-right">
+                    Actions
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -176,7 +202,22 @@ export default function Dashboard() {
                     <TableCell className="text-right font-mono-price">
                       <DiscountBadge pct={r.discount_pct} />
                     </TableCell>
-                    <TableCell className="w-8" />
+                    <TableCell className="text-right">
+                      <button
+                        type="button"
+                        title="Duplicate to another customer"
+                        data-testid={`duplicate-row-${r.id}`}
+                        onClick={() =>
+                          setDupTarget({
+                            cpqNumber: r.cpq_number,
+                            sourceCustomer: r.customer,
+                          })
+                        }
+                        className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-slate-600 hover:text-slate-950 hover:bg-slate-100"
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                      </button>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -184,6 +225,19 @@ export default function Dashboard() {
           </div>
         )}
       </div>
+
+      {dupTarget && (
+        <DuplicateCPQDialog
+          open={!!dupTarget}
+          cpqNumber={dupTarget.cpqNumber}
+          sourceCustomer={dupTarget.sourceCustomer}
+          onClose={() => setDupTarget(null)}
+          onDone={() => {
+            setDupTarget(null);
+            reload();
+          }}
+        />
+      )}
     </div>
   );
 }
