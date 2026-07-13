@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/table";
 import { toast } from "sonner";
 import { Search as SearchIcon, ArrowUpRight, Copy } from "lucide-react";
-import { formatMYR, formatDate, formatPct } from "@/lib/format";
+import { formatMYR, formatDate, formatPct, discountPillClass } from "@/lib/format";
 import { SEARCH } from "@/constants/testIds/farg";
 import ExportButton from "@/components/ExportButton";
 import DuplicateCPQDialog from "@/components/DuplicateCPQDialog";
@@ -132,8 +132,8 @@ export default function Dashboard() {
         </div>
         {loading ? (
           <div className="p-5 space-y-3">
-            {[...Array(6)].map((_, i) => (
-              <Skeleton key={i} className="h-10 w-full" />
+            {["s1", "s2", "s3", "s4", "s5", "s6"].map((k) => (
+              <Skeleton key={k} className="h-10 w-full" />
             ))}
           </div>
         ) : empty ? (
@@ -244,15 +244,9 @@ export default function Dashboard() {
 
 function DiscountBadge({ pct }) {
   const n = Number(pct ?? 0);
-  const cls =
-    n > 0
-      ? "text-emerald-700 bg-emerald-50 border-emerald-100"
-      : n < 0
-      ? "text-rose-700 bg-rose-50 border-rose-100"
-      : "text-slate-600 bg-slate-50 border-slate-200";
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs border ${cls}`}
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs border ${discountPillClass(n)}`}
     >
       {formatPct(n)}
     </span>

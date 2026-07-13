@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import { api, formatApiError } from "@/lib/api";
 import { Card } from "@/components/ui/card";
@@ -21,7 +21,7 @@ import {
   Package,
   Copy,
 } from "lucide-react";
-import { formatMYR, formatDate, formatPct } from "@/lib/format";
+import { formatMYR, formatDate, formatPct, discountPillClass } from "@/lib/format";
 import { toast } from "sonner";
 import { PART } from "@/constants/testIds/farg";
 import EditRecordDialog from "@/components/EditRecordDialog";
@@ -37,6 +37,13 @@ import {
   CartesianGrid,
 } from "recharts";
 
+const AXIS_TICK = { fontSize: 11 };
+const TOOLTIP_STYLE = {
+  borderRadius: 8,
+  border: "1px solid #e2e8f0",
+  fontSize: 12,
+};
+
 export default function PartDetail() {
   const { partNo } = useParams();
   const nav = useNavigate();
@@ -45,7 +52,7 @@ export default function PartDetail() {
   const [editing, setEditing] = useState(null);
   const [dupTarget, setDupTarget] = useState(null);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       const { data } = await api.get(
@@ -58,12 +65,11 @@ export default function PartDetail() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [partNo]);
 
   useEffect(() => {
     load();
-     
-  }, [partNo]);
+  }, [load]);
 
   const onDelete = async (id) => {
     if (!window.confirm("Delete this price record?")) return;
@@ -218,15 +224,11 @@ export default function PartDetail() {
                 <XAxis
                   dataKey="date"
                   stroke="#64748b"
-                  tick={{ fontSize: 11 }}
+                  tick={AXIS_TICK}
                 />
-                <YAxis stroke="#64748b" tick={{ fontSize: 11 }} />
+                <YAxis stroke="#64748b" tick={AXIS_TICK} />
                 <RTooltip
-                  contentStyle={{
-                    borderRadius: 8,
-                    border: "1px solid #e2e8f0",
-                    fontSize: 12,
-                  }}
+                  contentStyle={TOOLTIP_STYLE}
                   formatter={(v) => formatMYR(v)}
                 />
                 <Line
@@ -307,13 +309,7 @@ export default function PartDetail() {
                   </TableCell>
                   <TableCell className="text-right font-mono-price">
                     <span
-                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs border ${
-                        r.discount_pct > 0
-                          ? "text-emerald-700 bg-emerald-50 border-emerald-100"
-                          : r.discount_pct < 0
-                          ? "text-rose-700 bg-rose-50 border-rose-100"
-                          : "text-slate-600 bg-slate-50 border-slate-200"
-                      }`}
+                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs border ${discountPillClass(r.discount_pct)}`}
                     >
                       {formatPct(r.discount_pct)}
                     </span>

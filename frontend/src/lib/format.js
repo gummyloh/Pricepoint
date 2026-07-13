@@ -26,3 +26,11 @@ export function formatPct(v) {
   const n = Number(v ?? 0);
   return `${n.toFixed(2)}%`;
 }
+
+/** Returns Tailwind classes for a discount pill based on sign. */
+export function discountPillClass(pct) {
+  const n = Number(pct ?? 0);
+  if (n > 0) return "text-emerald-700 bg-emerald-50 border-emerald-100";
+  if (n < 0) return "text-rose-700 bg-rose-50 border-rose-100";
+  return "text-slate-600 bg-slate-50 border-slate-200";
+}

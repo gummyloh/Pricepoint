@@ -24,8 +24,8 @@ if not BASE_URL:
 
 API = f"{BASE_URL}/api"
 
-ADMIN_EMAIL = "admin@farg.com"
-ADMIN_PASSWORD = "admin123"
+ADMIN_EMAIL = os.environ.get("TEST_ADMIN_EMAIL", "admin@farg.com")
+ADMIN_PASSWORD = os.environ.get("TEST_ADMIN_PASSWORD", "admin123")
 
 
 # -------------------- Fixtures --------------------
@@ -62,7 +62,7 @@ class TestAuth:
         assert r.status_code == 200
         data = r.json()
         assert "has_users" in data
-        assert data["has_users"] is True  # admin seeded
+        assert data["has_users"]  # admin seeded
 
     def test_register_closed(self):
         r = requests.post(

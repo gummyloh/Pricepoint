@@ -1,0 +1,34 @@
+{
+  "summary": "Iteration 3 — code-quality regression pass. All 32 existing backend pytest tests still pass (21 in backend_test.py + 11 in test_export_duplicate.py). All refactor-affected UI flows verified via Playwright: login/logout, cookie-based session (/api/auth/me), dashboard render + stats cards + search filter, dashboard Excel export, Part Detail page with Recharts chart, part-scoped Excel export, Duplicate CPQ dialog, AddCPQ multi-line stable _id (removing middle line correctly preserves remaining values), Import CSV preview, Users page. Zero console errors during authenticated flows, zero React key warnings, zero page errors.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/test_export_duplicate.py",
+    "/app/test_reports/pytest/iter3_regression.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Refactor fixes verified end-to-end: xlsx headers exactly match spec (Part No, CPQ #, CPQ Date, Customer, Unit Price (RM), CPQ Price (RM), Discount %, Notes, Created By, Created At) and Discount column number_format is now '0.00%' (backslash removed).",
+    "AuthContext useMemo/useCallback fix verified — /api/auth/me was called only twice across the entire session (once on initial /login mount, once on redirect to authenticated app). No infinite re-render observed.",
+    "AddCPQ stable _id fix verified — created 3 lines (LINE-1-PART, LINE-2-PART, LINE-3-PART), removed the middle one, and the remaining line inputs correctly retained ['LINE-1-PART', 'LINE-3-PART']. Previous index-key bug would have shifted values.",
+    "PartDetail Recharts axis/tooltip module-level constants verified — chart renders with recharts-surface svg present, no React key/prop crash, no page errors.",
+    "ImportPage preview keys 'preview-'+index verified — CSV upload produced correct preview row count with zero React 'key' warnings in console.",
+    "Standing note from iter 2 still applies: server.py > 700 lines — split into routers/. Not blocking; already flagged."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (32/32)", "frontend": "100% (all iter 1+2 regression flows verified)"},
+  "test_credentials": "admin@farg.com / admin123 (from /app/memory/test_credentials.md) — verified working",
+  "seed_data_creation": "No new seed data. Existing TEST_/TEST-DUP-* / TEST-EXPORTPART-* records from iterations 1+2 remain and were used for regression checks (search 'PART-A1' returned 4 rows, dashboard shows 40 records / 19 parts / 10 customers / 12 CPQs).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run backend regression with: cd /app && python -m pytest backend/tests/ -v (32 tests, ~6s). Xlsx sanity: response starts with PK, content-type application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, headers list above, discount cell number_format == '0.00%'. Frontend testIds still current: dashboard-export-btn, part-export-btn, duplicate-row-<id>, duplicate-target-input, duplicate-cancel-button, duplicate-submit-button. Login lands on '/' (not '/dashboard') — the dashboard is the '/' route. AddCPQ removes-middle stability test lives at pattern: fill 3 lines then click 2nd remove button; expect remaining values to be [1st, 3rd] — this was the previously-broken behavior and is now fixed.",
+  "rca of the issue": "N/A — no regressions found. All 8 code-quality refactors (server.py _build_xlsx helpers + '0.00%' fix, backend tests env-var admin creds, AuthContext useMemo/useCallback, PartDetail useCallback + module constants + discountPillClass helper, Dashboard stable skeleton keys, AddCPQ crypto.randomUUID _id keys, ImportPage 'preview-' prefixed keys, UsersPage useCallback, lib/format.js discountPillClass) work as intended with no functional or UX regression."
+}

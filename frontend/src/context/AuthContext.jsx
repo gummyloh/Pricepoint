@@ -1,4 +1,11 @@
-import { createContext, useContext, useEffect, useState, useCallback } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  useCallback,
+  useMemo,
+} from "react";
 import { api, formatApiError } from "@/lib/api";
 
 const AuthContext = createContext(null);
@@ -11,7 +18,11 @@ export function AuthProvider({ children }) {
     try {
       const { data } = await api.get("/auth/me");
       setUser(data);
-    } catch {
+    } catch (err) {
+      // 401 on first load simply means "not logged in" — normal path.
+      if (err?.response?.status && err.response.status !== 401) {
+        console.warn("Auth refresh failed:", formatApiError(err));
+      }
       setUser(false);
     }
   }, []);
@@ -21,42 +32,41 @@ export function AuthProvider({ children }) {
       try {
         const { data } = await api.get("/auth/bootstrap-status");
         setBootstrap(data);
-      } catch {
-        /* ignore */
+      } catch (err) {
+        console.warn("bootstrap-status failed:", formatApiError(err));
       }
       await refresh();
     })();
   }, [refresh]);
 
-  const login = async (email, password) => {
+  const login = useCallback(async (email, password) => {
     const { data } = await api.post("/auth/login", { email, password });
     setUser(data);
     return data;
-  };
+  }, []);
 
-  const register = async (name, email, password) => {
+  const register = useCallback(async (name, email, password) => {
     const { data } = await api.post("/auth/register", { name, email, password });
     setUser(data);
     setBootstrap({ has_users: true });
     return data;
-  };
+  }, []);
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     try {
       await api.post("/auth/logout");
-    } catch {
-      /* noop */
+    } catch (err) {
+      console.warn("logout request failed:", formatApiError(err));
     }
     setUser(false);
-  };
+  }, []);
 
-  return (
-    <AuthContext.Provider
-      value={{ user, login, logout, register, refresh, bootstrap, setBootstrap }}
-    >
-      {children}
-    </AuthContext.Provider>
+  const value = useMemo(
+    () => ({ user, login, logout, register, refresh, bootstrap, setBootstrap }),
+    [user, login, logout, register, refresh, bootstrap]
   );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {

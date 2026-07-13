@@ -33,6 +33,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, EmailStr, BeforeValidator, ConfigDict
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill
+from openpyxl.utils import get_column_letter
 
 # ---------- MongoDB ----------
 mongo_url = os.environ["MONGO_URL"]
@@ -707,58 +708,74 @@ async def duplicate_cpq(
 
 
 # ---------- Excel Export ----------
-def _build_xlsx(rows: List[dict], title: str = "Price Records") -> bytes:
-    wb = Workbook()
-    ws = wb.active
-    ws.title = title[:31]
-    headers = [
-        "Part No",
-        "CPQ #",
-        "CPQ Date",
-        "Customer",
-        "Unit Price (RM)",
-        "CPQ Price (RM)",
-        "Discount %",
-        "Notes",
-        "Created By",
-        "Created At",
-    ]
+_XLSX_HEADERS = [
+    "Part No",
+    "CPQ #",
+    "CPQ Date",
+    "Customer",
+    "Unit Price (RM)",
+    "CPQ Price (RM)",
+    "Discount %",
+    "Notes",
+    "Created By",
+    "Created At",
+]
+_XLSX_COL_WIDTHS = [16, 18, 12, 22, 16, 16, 12, 30, 18, 18]
+
+
+def _xlsx_write_header(ws) -> None:
     header_font = Font(bold=True, color="FFFFFF")
     header_fill = PatternFill("solid", fgColor="0F172A")
-    for col, h in enumerate(headers, 1):
+    for col, h in enumerate(_XLSX_HEADERS, 1):
         cell = ws.cell(row=1, column=col, value=h)
         cell.font = header_font
         cell.fill = header_fill
         cell.alignment = Alignment(horizontal="left", vertical="center")
 
-    for r_idx, r in enumerate(rows, 2):
-        ws.cell(row=r_idx, column=1, value=r.get("part_no", ""))
-        ws.cell(row=r_idx, column=2, value=r.get("cpq_number", ""))
-        ws.cell(row=r_idx, column=3, value=r.get("cpq_date", ""))
-        ws.cell(row=r_idx, column=4, value=r.get("customer", ""))
-        ws.cell(row=r_idx, column=5, value=float(r.get("unit_price", 0) or 0))
-        ws.cell(row=r_idx, column=6, value=float(r.get("cpq_price", 0) or 0))
-        ws.cell(row=r_idx, column=7, value=float(r.get("discount_pct", 0) or 0))
-        ws.cell(row=r_idx, column=8, value=r.get("notes", ""))
-        ws.cell(row=r_idx, column=9, value=r.get("created_by_name", ""))
-        created = r.get("created_at")
-        if isinstance(created, datetime):
-            created = created.strftime("%Y-%m-%d %H:%M")
-        ws.cell(row=r_idx, column=10, value=str(created or ""))
 
-    # Currency + pct formatting
+def _xlsx_format_created(created: Any) -> str:
+    if isinstance(created, datetime):
+        return created.strftime("%Y-%m-%d %H:%M")
+    return str(created or "")
+
+
+def _xlsx_write_row(ws, row_idx: int, r: dict) -> None:
+    values = [
+        r.get("part_no", ""),
+        r.get("cpq_number", ""),
+        r.get("cpq_date", ""),
+        r.get("customer", ""),
+        float(r.get("unit_price", 0) or 0),
+        float(r.get("cpq_price", 0) or 0),
+        float(r.get("discount_pct", 0) or 0),
+        r.get("notes", ""),
+        r.get("created_by_name", ""),
+        _xlsx_format_created(r.get("created_at")),
+    ]
+    for col, val in enumerate(values, 1):
+        ws.cell(row=row_idx, column=col, value=val)
+
+
+def _xlsx_apply_styles(ws) -> None:
     for row in ws.iter_rows(min_row=2, min_col=5, max_col=6):
         for cell in row:
             cell.number_format = '"RM " #,##0.00'
     for row in ws.iter_rows(min_row=2, min_col=7, max_col=7):
         for cell in row:
-            cell.number_format = "0.00\\%"
-
-    widths = [16, 18, 12, 22, 16, 16, 12, 30, 18, 18]
-    for i, w in enumerate(widths, 1):
-        ws.column_dimensions[chr(64 + i) if i <= 26 else "A" + chr(64 + i - 26)].width = w
+            cell.number_format = "0.00%"
+    for i, w in enumerate(_XLSX_COL_WIDTHS, 1):
+        ws.column_dimensions[get_column_letter(i)].width = w
     ws.freeze_panes = "A2"
 
+
+def _build_xlsx(rows: List[dict], title: str = "Price Records") -> bytes:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = title[:31]
+    _xlsx_write_header(ws)
+    for r_idx, r in enumerate(rows, 2):
+        _xlsx_write_row(ws, r_idx, r)
+    _xlsx_apply_styles(ws)
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)

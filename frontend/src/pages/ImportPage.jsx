@@ -276,7 +276,7 @@ export default function ImportPage() {
                 </TableHeader>
                 <TableBody>
                   {preview.sample_rows.map((r, i) => (
-                    <TableRow key={i} className="border-slate-100">
+                    <TableRow key={`preview-${i}`} className="border-slate-100">
                       {TARGET_FIELDS.map((f) => {
                         const src = mapping[f.key];
                         const value = src && src !== SKIP ? r[src] : "";

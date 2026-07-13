@@ -13,6 +13,10 @@ import { formatMYR, formatPct } from "@/lib/format";
 
 function emptyLine() {
   return {
+    _id:
+      typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `l-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     part_no: "",
     unit_price: "",
     customer: "",
@@ -135,7 +139,7 @@ export default function AddCPQ() {
                   : 0;
               return (
                 <Card
-                  key={i}
+                  key={l._id}
                   className="border-slate-200 rounded-lg p-5 bg-white shadow-none"
                 >
                   <div className="flex items-center justify-between mb-4">
