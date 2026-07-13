@@ -28,10 +28,11 @@ Admins currently keep project/CPQ pricing in Excel. To answer "what have we quot
 - Users page: list team members, invite additional admins.
 - Split-screen sign-in with abstract-geometric hero image; Cabinet Grotesk display type; JetBrains Mono for numbers.
 
-## Data Model (MongoDB)
-- `users`: `{ email(unique), password_hash, name, role, created_at }`
-- `price_records`: `{ part_no, unit_price, cpq_number, cpq_date(YYYY-MM-DD), customer, cpq_price, notes, created_by, created_by_name, created_at, updated_at }`
-- Indexes: users.email(unique), price_records.{part_no, cpq_number, customer, cpq_date}.
+## Data Model (Supabase Postgres)
+- `users`: `id uuid PK default gen_random_uuid(), email text UNIQUE, password_hash text, name text, role text default 'admin', created_at timestamptz default now()`
+- `price_records`: `id uuid PK default gen_random_uuid(), part_no text, unit_price numeric, cpq_number text, cpq_date date, customer text, cpq_price numeric, notes text default '', created_by uuid REFERENCES users(id), created_by_name text, created_at timestamptz default now(), updated_at timestamptz default now()`
+- Indexes: `users.email` (unique), `price_records.{part_no, cpq_number, customer, cpq_date}`.
+- `discount_pct` is computed on the fly in the serializer (not stored).
 
 ## Testing (iteration 2 — 2026-02)
 - Backend: **32/32 pytest** (21 auth/CRUD/import + 11 new for export + duplicate).
