@@ -461,27 +461,64 @@ class TestImport:
         r = sess.post(f"{API}/import/preview", files=files)
         assert r.status_code == 400
 
-    def test_import_commit_blank_unit_price_all_rows(self, admin_session):
-        """Regression: rows with blank unit_price (e.g. straight from a PDF
-        import the user hasn't filled in yet) must not 422 the whole
-        request — they should surface a clear per-row error instead."""
+    def test_import_commit_blank_unit_price_defaults_to_zero(
+        self, admin_session, created_ids
+    ):
+        """Regression: unit_price (list price) is never in a Schneider PDF
+        quote, so a blank cell must not block the import — it should
+        default to 0 and be editable later via the part's Edit dialog,
+        rather than 422-ing the whole request or being rejected per-row."""
+        cpq_no = f"TEST-BLANKPRICE-{uuid.uuid4().hex[:6]}"
         rows_payload = [
             {
                 "part_no": "TEST-BLANKPRICE-1",
                 "unit_price": "",
-                "cpq_number": f"TEST-BLANK-{uuid.uuid4().hex[:6]}",
+                "cpq_number": cpq_no,
                 "cpq_date": "2025-05-02",
                 "customer": "BlankCust",
                 "cpq_price": "80",
             },
         ]
         r = admin_session.post(f"{API}/import/commit", json={"rows": rows_payload})
+        assert r.status_code == 200, r.text
+        assert r.json()["inserted"] == 1
+
+        r2 = admin_session.get(f"{API}/price-records", params={"q": cpq_no})
+        assert r2.status_code == 200
+        rows = r2.json()
+        assert len(rows) == 1
+        rid = rows[0]["id"]
+        created_ids.append(rid)
+        assert rows[0]["unit_price"] == 0
+        assert rows[0]["discount_pct"] == 0.0
+
+        # Editable later, as intended
+        r3 = admin_session.patch(f"{API}/price-records/{rid}", json={"unit_price": 120})
+        assert r3.status_code == 200, r3.text
+        assert r3.json()["unit_price"] == 120
+
+    def test_import_commit_missing_cpq_price_all_rows(self, admin_session):
+        """cpq_price IS always present in a Schneider PDF/CSV import, so
+        unlike unit_price it stays required — a blank cell is a real error."""
+        rows_payload = [
+            {
+                "part_no": "TEST-BLANKCPQPRICE-1",
+                "unit_price": "100",
+                "cpq_number": f"TEST-BLANK-{uuid.uuid4().hex[:6]}",
+                "cpq_date": "2025-05-02",
+                "customer": "BlankCust",
+                "cpq_price": "",
+            },
+        ]
+        r = admin_session.post(f"{API}/import/commit", json={"rows": rows_payload})
         assert r.status_code == 400, r.text
         detail = r.json().get("detail", "")
-        assert "unit price" in detail.lower(), detail
+        assert "cpq price" in detail.lower(), detail
 
-    def test_import_commit_partial_success_with_blank_row(self, admin_session, created_ids):
-        """One row missing unit_price shouldn't block the other valid rows."""
+    def test_import_commit_partial_success_with_missing_cpq_price(
+        self, admin_session, created_ids
+    ):
+        """One row missing cpq_price shouldn't block the other valid rows."""
         cpq_no = f"TEST-PARTIAL-{uuid.uuid4().hex[:6]}"
         rows_payload = [
             {
@@ -494,11 +531,11 @@ class TestImport:
             },
             {
                 "part_no": "TEST-PARTIAL-BLANK",
-                "unit_price": "",
+                "unit_price": "100",
                 "cpq_number": cpq_no,
                 "cpq_date": "2025-05-03",
                 "customer": "PartialCust",
-                "cpq_price": "90",
+                "cpq_price": "",
             },
         ]
         r = admin_session.post(f"{API}/import/commit", json={"rows": rows_payload})

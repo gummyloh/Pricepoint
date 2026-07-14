@@ -857,14 +857,17 @@ async def import_commit(
     created_by_name = user.get("name") or user.get("email")
     for idx, row in enumerate(payload.rows):
         try:
-            if not (row.unit_price or "").strip():
-                raise ValueError("Unit Price is required")
             if not (row.cpq_price or "").strip():
                 raise ValueError("CPQ Price is required")
+            # unit_price (list price) may be unknown at import time — e.g. a
+            # Schneider PDF quote never contains it — so default to 0 and let
+            # the user fill it in later via the part's Edit dialog.
+            unit_price_raw = (row.unit_price or "").strip()
+            unit_price = float(unit_price_raw) if unit_price_raw else 0.0
             values.append(
                 (
                     row.part_no.strip(),
-                    float(row.unit_price),
+                    unit_price,
                     row.cpq_number.strip(),
                     parse_iso_date(row.cpq_date),
                     row.customer.strip(),
