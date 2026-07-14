@@ -1,0 +1,20 @@
+{
+  "short_name": "Pricepoint",
+  "name": "Pricepoint · CPQ Price Lookup",
+  "icons": [
+    {
+      "src": "pricepoint-icon-redbg-180.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    },
+    {
+      "src": "pricepoint-icon-redbg-1024.png",
+      "sizes": "1024x1024",
+      "type": "image/png"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#c8102e",
+  "background_color": "#ffffff"
+}
