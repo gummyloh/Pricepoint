@@ -67,7 +67,9 @@ def _find_line_item_tables(tables: list):
 
 
 def _cell(row: list, idx: int) -> str:
-    return row[idx] if idx is not None and idx < len(row) else ""
+    if idx is None or idx >= len(row):
+        return ""
+    return row[idx] or ""
 
 
 def parse_schneider_tables(full_text: str, tables: list) -> dict:

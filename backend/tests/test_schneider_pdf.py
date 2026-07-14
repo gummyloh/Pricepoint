@@ -187,6 +187,38 @@ class TestParseSchneiderTables:
         assert len(result["rows"]) == 1
         assert result["rows"][0]["part_no"] == "PART-1"
 
+    def test_none_cells_do_not_crash(self):
+        """pdfplumber returns None (not "") for genuinely empty table cells —
+        e.g. blank Description or Qty in a real-world quote. Must not crash."""
+        text = "Quote Number: Q1\nDate: 01-01-2026\nProject Name: Acme\n"
+        tables = [
+            [
+                LINE_ITEM_HEADER,
+                ["1", "MPG1", "PART-1", None, "1", None, "10.00", "10.00"],
+            ]
+        ]
+        result = parse_schneider_tables(text, tables)
+        assert len(result["rows"]) == 1
+        row = result["rows"][0]
+        assert row["part_no"] == "PART-1"
+        assert row["description"] == ""
+        assert row["qty"] == "1"  # blank Qty cell defaults to 1
+
+    def test_none_part_no_cell_is_skipped(self):
+        """A row with a None Reference cell (e.g. a section header) is skipped,
+        not treated as a crash or a valid part."""
+        text = "Quote Number: Q1\nDate: 01-01-2026\nProject Name: Acme\n"
+        tables = [
+            [
+                LINE_ITEM_HEADER,
+                [None, None, None, "Category: Circuit Breakers", None, None, None, None],
+                ["1", "MPG1", "PART-1", "Widget", "1", "2", "10.00", "20.00"],
+            ]
+        ]
+        result = parse_schneider_tables(text, tables)
+        assert len(result["rows"]) == 1
+        assert result["rows"][0]["part_no"] == "PART-1"
+
     def test_missing_header_fields_yield_blank_strings(self):
         text = "Some unrelated document text with no recognizable header fields."
         tables = [
