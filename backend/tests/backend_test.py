@@ -166,6 +166,8 @@ class TestPriceRecords:
             "cpq_date": "2025-01-15",
             "customer": "TEST Customer A",
             "cpq_price": 800.0,
+            "qty": 3,
+            "description": "Test widget",
             "notes": "test note",
         }
         r = admin_session.post(f"{API}/price-records", json=payload)
@@ -176,6 +178,8 @@ class TestPriceRecords:
         assert data["cpq_price"] == 800.0
         # Discount = (1000-800)/1000 = 20%
         assert data["discount_pct"] == 20.0
+        assert data["qty"] == 3
+        assert data["description"] == "Test widget"
         assert "id" in data
         created_ids.append(data["id"])
 
@@ -183,6 +187,26 @@ class TestPriceRecords:
         r2 = admin_session.get(f"{API}/price-records/{data['id']}")
         assert r2.status_code == 200
         assert r2.json()["part_no"] == payload["part_no"]
+        assert r2.json()["qty"] == 3
+        assert r2.json()["description"] == "Test widget"
+
+    def test_create_record_default_qty(self, admin_session, created_ids):
+        r = admin_session.post(
+            f"{API}/price-records",
+            json={
+                "part_no": "TEST-PART-DEFAULTQTY",
+                "unit_price": 100.0,
+                "cpq_number": f"TEST-CPQ-{uuid.uuid4().hex[:6]}",
+                "cpq_date": "2025-01-16",
+                "customer": "TEST Customer A",
+                "cpq_price": 90.0,
+            },
+        )
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert data["qty"] == 1
+        assert data["description"] == ""
+        created_ids.append(data["id"])
 
     def test_list_with_search(self, admin_session, created_ids):
         # Create a searchable record
@@ -232,6 +256,8 @@ class TestPriceRecords:
                     "unit_price": 100,
                     "customer": "CustB",
                     "cpq_price": 90,
+                    "qty": 5,
+                    "description": "Batch widget 1",
                     "notes": "",
                 },
                 {
@@ -252,6 +278,11 @@ class TestPriceRecords:
         assert r2.status_code == 200
         rows = r2.json()
         assert len(rows) == 2
+        p1 = next(row for row in rows if row["part_no"] == "TEST-BATCH-P1")
+        assert p1["qty"] == 5
+        assert p1["description"] == "Batch widget 1"
+        p2 = next(row for row in rows if row["part_no"] == "TEST-BATCH-P2")
+        assert p2["qty"] == 1  # default
         for row in rows:
             created_ids.append(row["id"])
 
@@ -387,6 +418,8 @@ class TestImport:
                 "cpq_date": "2025-05-01",
                 "customer": "ImpCust",
                 "cpq_price": 80,
+                "qty": "4",
+                "description": "Imported widget",
                 "notes": "n1",
             },
             {
@@ -396,6 +429,7 @@ class TestImport:
                 "cpq_date": "2025-05-01",
                 "customer": "ImpCust",
                 "cpq_price": 150,
+                "qty": "",
                 "notes": "n2",
             },
         ]
@@ -408,6 +442,11 @@ class TestImport:
         assert r3.status_code == 200
         rows = r3.json()
         assert len(rows) >= 2
+        imp1 = next(row for row in rows if row["part_no"] == "TEST-IMP-1")
+        assert imp1["qty"] == 4
+        assert imp1["description"] == "Imported widget"
+        imp2 = next(row for row in rows if row["part_no"] == "TEST-IMP-2")
+        assert imp2["qty"] == 1  # blank qty string defaults to 1
         for row in rows:
             if row["part_no"].startswith("TEST-IMP"):
                 created_ids.append(row["id"])

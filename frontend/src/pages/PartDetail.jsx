@@ -272,6 +272,10 @@ export default function PartDetail() {
                 <TableHead className="eyebrow text-slate-600">CPQ#</TableHead>
                 <TableHead className="eyebrow text-slate-600">Date</TableHead>
                 <TableHead className="eyebrow text-slate-600">Customer</TableHead>
+                <TableHead className="eyebrow text-slate-600">Description</TableHead>
+                <TableHead className="eyebrow text-slate-600 text-right">
+                  Qty
+                </TableHead>
                 <TableHead className="eyebrow text-slate-600 text-right">
                   List
                 </TableHead>
@@ -301,6 +305,12 @@ export default function PartDetail() {
                     {formatDate(r.cpq_date)}
                   </TableCell>
                   <TableCell className="text-slate-700">{r.customer}</TableCell>
+                  <TableCell className="text-slate-600 max-w-[220px] truncate">
+                    {r.description || "—"}
+                  </TableCell>
+                  <TableCell className="text-right font-mono-price text-slate-600">
+                    {r.qty ?? 1}
+                  </TableCell>
                   <TableCell className="text-right font-mono-price text-slate-600">
                     {formatMYR(r.unit_price)}
                   </TableCell>

@@ -25,6 +25,8 @@ import { IMPORT } from "@/constants/testIds/farg";
 
 const TARGET_FIELDS = [
   { key: "part_no", label: "Part No", required: true },
+  { key: "description", label: "Description", required: false },
+  { key: "qty", label: "Qty", required: false },
   { key: "unit_price", label: "Unit Price", required: true },
   { key: "cpq_number", label: "CPQ / Project #", required: true },
   { key: "cpq_date", label: "CPQ Date", required: true },
@@ -34,6 +36,7 @@ const TARGET_FIELDS = [
 ];
 
 const SKIP = "__skip__";
+const PREVIEW_LIMIT = 50;
 
 function autoMap(columns) {
   const norm = (s) => String(s).toLowerCase().replace(/[\s_/#()-]+/g, "");
@@ -44,6 +47,8 @@ function autoMap(columns) {
     cpq_date: ["date", "cpqdate", "period", "createddate"],
     customer: ["customer", "endcustomer", "client", "account"],
     cpq_price: ["cpqprice", "quoted", "price", "projectprice"],
+    qty: ["qty", "quantity", "moq"],
+    description: ["description", "desc", "itemdescription"],
     notes: ["notes", "remarks", "comment", "reason"],
   };
   const result = {};
@@ -66,6 +71,7 @@ export default function ImportPage() {
   const inputRef = useRef(null);
   const [file, setFile] = useState(null);
   const [preview, setPreview] = useState(null);
+  const [rows, setRows] = useState([]);
   const [mapping, setMapping] = useState({});
   const [uploading, setUploading] = useState(false);
   const [committing, setCommitting] = useState(false);
@@ -77,16 +83,21 @@ export default function ImportPage() {
     );
   }, [preview, mapping]);
 
+  const isPdf = (f) => f.name.toLowerCase().endsWith(".pdf");
+
   const upload = async (f) => {
     setUploading(true);
     setPreview(null);
+    setRows([]);
     try {
       const fd = new FormData();
       fd.append("file", f);
-      const { data } = await api.post("/import/preview", fd, {
+      const endpoint = isPdf(f) ? "/import/pdf" : "/import/preview";
+      const { data } = await api.post(endpoint, fd, {
         headers: { "Content-Type": "multipart/form-data" },
       });
       setPreview(data);
+      setRows(data.all_rows);
       setMapping(autoMap(data.columns));
       toast.success(`Parsed ${data.row_count} rows`);
     } catch (err) {
@@ -113,11 +124,18 @@ export default function ImportPage() {
     }
   };
 
+  const updateCell = (rowIdx, srcCol, value) => {
+    if (!srcCol || srcCol === SKIP) return;
+    setRows((prev) =>
+      prev.map((r, idx) => (idx === rowIdx ? { ...r, [srcCol]: value } : r))
+    );
+  };
+
   const commit = async () => {
     if (!preview) return;
     setCommitting(true);
     try {
-      const rows = preview.all_rows
+      const payloadRows = rows
         .map((r) => {
           const out = {};
           for (const f of TARGET_FIELDS) {
@@ -127,7 +145,7 @@ export default function ImportPage() {
           return out;
         })
         .filter((r) => r.part_no && r.cpq_number && r.customer);
-      const { data } = await api.post("/import/commit", { rows });
+      const { data } = await api.post("/import/commit", { rows: payloadRows });
       toast.success(`Imported ${data.inserted} records`);
       nav("/");
     } catch (err) {
@@ -154,16 +172,18 @@ export default function ImportPage() {
             <UploadCloud className="h-6 w-6" />
           </div>
           <h3 className="font-display text-xl font-semibold text-slate-950">
-            Drop an .xlsx, .xls or .csv here
+            Drop an .xlsx, .xls, .csv or Schneider .pdf quote here
           </h3>
           <p className="text-sm text-slate-500 mt-2 max-w-md mx-auto">
             We&apos;ll auto-detect columns like Part No, Unit Price, CPQ#, Date,
-            Customer and CPQ Price. You can review and remap before importing.
+            Customer and CPQ Price — or extract them straight from a Schneider
+            Electric PDF quotation. You can review, remap and edit before
+            importing.
           </p>
           <input
             ref={inputRef}
             type="file"
-            accept=".xlsx,.xls,.csv"
+            accept=".xlsx,.xls,.csv,.pdf"
             data-testid={IMPORT.fileInput}
             className="hidden"
             onChange={onSelect}
@@ -209,6 +229,7 @@ export default function ImportPage() {
               onClick={() => {
                 setPreview(null);
                 setFile(null);
+                setRows([]);
               }}
             >
               Replace file
@@ -257,7 +278,8 @@ export default function ImportPage() {
           <div className="border border-slate-200 rounded-lg overflow-hidden bg-white">
             <div className="px-5 py-3 border-b border-slate-200 bg-slate-50">
               <p className="eyebrow text-slate-600">
-                Preview · first {preview.sample_rows.length} rows
+                Preview · editable · first {Math.min(rows.length, PREVIEW_LIMIT)} of{" "}
+                {rows.length} rows
               </p>
             </div>
             <div className="overflow-x-auto">
@@ -275,23 +297,33 @@ export default function ImportPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {preview.sample_rows.map((r, i) => (
+                  {rows.slice(0, PREVIEW_LIMIT).map((r, i) => (
                     <TableRow key={`preview-${i}`} className="border-slate-100">
                       {TARGET_FIELDS.map((f) => {
                         const src = mapping[f.key];
-                        const value = src && src !== SKIP ? r[src] : "";
+                        const mapped = src && src !== SKIP;
+                        const value = mapped ? r[src] ?? "" : "";
                         return (
                           <TableCell
                             key={f.key}
                             className={
-                              ["unit_price", "cpq_price", "part_no", "cpq_number"].includes(
+                              ["unit_price", "cpq_price", "part_no", "cpq_number", "qty"].includes(
                                 f.key
                               )
                                 ? "font-mono-price"
                                 : ""
                             }
                           >
-                            {value || <span className="text-slate-300">—</span>}
+                            {mapped ? (
+                              <input
+                                data-testid={IMPORT.previewCell(f.key, i)}
+                                value={value}
+                                onChange={(e) => updateCell(i, src, e.target.value)}
+                                className="w-full min-w-[80px] bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-slate-300 rounded px-1 py-0.5"
+                              />
+                            ) : (
+                              <span className="text-slate-300">—</span>
+                            )}
                           </TableCell>
                         );
                       })}

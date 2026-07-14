@@ -22,6 +22,8 @@ export default function EditRecordDialog({ record, open, onClose, onSaved }) {
     cpq_date: record.cpq_date,
     customer: record.customer,
     cpq_price: record.cpq_price,
+    qty: record.qty ?? 1,
+    description: record.description || "",
     notes: record.notes || "",
   });
   const [saving, setSaving] = useState(false);
@@ -36,6 +38,7 @@ export default function EditRecordDialog({ record, open, onClose, onSaved }) {
         ...form,
         unit_price: Number(form.unit_price),
         cpq_price: Number(form.cpq_price),
+        qty: Number(form.qty) || 1,
       });
       toast.success("Record updated");
       onSaved?.();
@@ -113,6 +116,27 @@ export default function EditRecordDialog({ record, open, onClose, onSaved }) {
                 value={form.cpq_price}
                 onChange={(e) => set("cpq_price", e.target.value)}
                 className="h-10 font-mono-price"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Qty</Label>
+              <Input
+                data-testid={EDIT.qty}
+                type="number"
+                step="1"
+                min="1"
+                value={form.qty}
+                onChange={(e) => set("qty", e.target.value)}
+                className="h-10 font-mono-price"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Description</Label>
+              <Input
+                data-testid={EDIT.description}
+                value={form.description}
+                onChange={(e) => set("description", e.target.value)}
+                className="h-10"
               />
             </div>
             <div className="space-y-1.5 md:col-span-2">

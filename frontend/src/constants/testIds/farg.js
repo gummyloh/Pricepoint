@@ -43,6 +43,8 @@ export const CPQ_FORM = {
   lineUnit: (i) => `line-unit-${i}`,
   lineCustomer: (i) => `line-customer-${i}`,
   lineCpqPrice: (i) => `line-cpq-price-${i}`,
+  lineQty: (i) => `line-qty-${i}`,
+  lineDescription: (i) => `line-description-${i}`,
   lineNotes: (i) => `line-notes-${i}`,
   submit: "cpq-submit-button",
 };
@@ -53,6 +55,7 @@ export const IMPORT = {
   mapping: (field) => `import-map-${field}`,
   commitBtn: "import-commit-button",
   previewTable: "import-preview-table",
+  previewCell: (field, row) => `import-cell-${field}-${row}`,
 };
 
 export const USERS = {
@@ -70,6 +73,8 @@ export const EDIT = {
   cpqDate: "edit-cpq-date",
   customer: "edit-customer",
   cpqPrice: "edit-cpq-price",
+  qty: "edit-qty",
+  description: "edit-description",
   notes: "edit-notes",
   submit: "edit-submit-button",
   cancel: "edit-cancel-button",

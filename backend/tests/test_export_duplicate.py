@@ -86,7 +86,7 @@ class TestExportXlsx:
         assert len(rows) >= 1 + seeded_cpq["line_count"]
         # All non-header rows for this filter should have the matching CPQ #
         data_rows = rows[1:]
-        cpq_col_values = [row[1] for row in data_rows]  # CPQ # is column 2
+        cpq_col_values = [row[3] for row in data_rows]  # CPQ # is column 4
         assert all(v == seeded_cpq["cpq_number"] for v in cpq_col_values), cpq_col_values
 
     def test_export_with_part_no(self, admin_session, seeded_cpq, admin_session_extra_part):

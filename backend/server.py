@@ -34,6 +34,8 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill
 from openpyxl.utils import get_column_letter
 
+from schneider_pdf import parse_schneider_pdf
+
 # ---------- Postgres pool ----------
 DATABASE_URL = os.environ["DATABASE_URL"]
 
@@ -121,6 +123,8 @@ class PriceRecordCreate(BaseModel):
     cpq_date: str
     customer: str = Field(min_length=1)
     cpq_price: float = Field(ge=0)
+    qty: int = Field(default=1, ge=1)
+    description: Optional[str] = ""
     notes: Optional[str] = ""
 
 
@@ -131,6 +135,8 @@ class PriceRecordUpdate(BaseModel):
     cpq_date: Optional[str] = None
     customer: Optional[str] = None
     cpq_price: Optional[float] = None
+    qty: Optional[int] = None
+    description: Optional[str] = None
     notes: Optional[str] = None
 
 
@@ -139,6 +145,8 @@ class CPQBatchLine(BaseModel):
     unit_price: float
     customer: str
     cpq_price: float
+    qty: int = Field(default=1, ge=1)
+    description: Optional[str] = ""
     notes: Optional[str] = ""
 
 
@@ -155,6 +163,8 @@ class ImportRow(BaseModel):
     cpq_date: str
     customer: str
     cpq_price: float
+    qty: Optional[str] = None
+    description: Optional[str] = ""
     notes: Optional[str] = ""
 
 
@@ -293,12 +303,21 @@ def serialize_price_record(row: Any) -> dict:
         "customer": row["customer"] or "",
         "cpq_price": cpq_price,
         "discount_pct": compute_discount(unit_price, cpq_price),
+        "qty": int(row["qty"]) if row["qty"] is not None else 1,
+        "description": row["description"] or "",
         "notes": row["notes"] or "",
         "created_by": str(row["created_by"]) if row["created_by"] else None,
         "created_by_name": row["created_by_name"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }
+
+
+def parse_qty(v: Any) -> int:
+    """Parse a possibly-blank raw qty (from import rows) into an int, default 1."""
+    if v is None or (isinstance(v, str) and not v.strip()):
+        return 1
+    return int(float(v))
 
 
 def parse_iso_date(s: str) -> date:
@@ -494,7 +513,7 @@ async def list_users(user: dict = Depends(get_current_user)):
 # ---------- Price Record Routes ----------
 PR_COLS = (
     "id, part_no, unit_price, cpq_number, cpq_date, customer, "
-    "cpq_price, notes, created_by, created_by_name, created_at, updated_at"
+    "cpq_price, qty, description, notes, created_by, created_by_name, created_at, updated_at"
 )
 
 
@@ -507,9 +526,9 @@ async def create_price_record(
         f"""
         INSERT INTO price_records (
             part_no, unit_price, cpq_number, cpq_date, customer,
-            cpq_price, notes, created_by, created_by_name, created_at, updated_at
+            cpq_price, qty, description, notes, created_by, created_by_name, created_at, updated_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now(), now())
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now(), now())
         RETURNING {PR_COLS}
         """,
         input.part_no.strip(),
@@ -518,6 +537,8 @@ async def create_price_record(
         parse_iso_date(input.cpq_date),
         input.customer.strip(),
         float(input.cpq_price),
+        input.qty,
+        input.description or "",
         input.notes or "",
         uuid.UUID(user["_id"]),
         user.get("name") or user.get("email"),
@@ -543,6 +564,8 @@ async def create_batch(
             cpq_date,
             line.customer.strip(),
             float(line.cpq_price),
+            line.qty,
+            line.description or "",
             line.notes or "",
             created_by,
             created_by_name,
@@ -556,9 +579,9 @@ async def create_batch(
                 """
                 INSERT INTO price_records (
                     part_no, unit_price, cpq_number, cpq_date, customer,
-                    cpq_price, notes, created_by, created_by_name, created_at, updated_at
+                    cpq_price, qty, description, notes, created_by, created_by_name, created_at, updated_at
                 )
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, now(), now())
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, now(), now())
                 """,
                 values,
             )
@@ -680,6 +703,8 @@ async def update_price_record(
             normalized[k] = parse_iso_date(v)
         elif k in ("unit_price", "cpq_price"):
             normalized[k] = float(v)
+        elif k == "qty":
+            normalized[k] = int(v)
         elif k in ("part_no", "cpq_number", "customer") and isinstance(v, str):
             normalized[k] = v.strip()
         else:
@@ -769,6 +794,8 @@ async def duplicate_cpq(
                     new_cpq_date,
                     target,
                     float(src["cpq_price"] or 0),
+                    int(src["qty"]) if src["qty"] is not None else 1,
+                    src["description"] or "",
                     src["notes"] or "",
                     created_by,
                     created_by_name,
@@ -780,9 +807,9 @@ async def duplicate_cpq(
                 """
                 INSERT INTO price_records (
                     part_no, unit_price, cpq_number, cpq_date, customer,
-                    cpq_price, notes, created_by, created_by_name, created_at, updated_at
+                    cpq_price, qty, description, notes, created_by, created_by_name, created_at, updated_at
                 )
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, now(), now())
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, now(), now())
                 """,
                 values,
             )
@@ -838,6 +865,8 @@ async def import_commit(
                     parse_iso_date(row.cpq_date),
                     row.customer.strip(),
                     float(row.cpq_price),
+                    parse_qty(row.qty),
+                    row.description or "",
                     row.notes or "",
                     created_by,
                     created_by_name,
@@ -854,13 +883,45 @@ async def import_commit(
                 """
                 INSERT INTO price_records (
                     part_no, unit_price, cpq_number, cpq_date, customer,
-                    cpq_price, notes, created_by, created_by_name, created_at, updated_at
+                    cpq_price, qty, description, notes, created_by, created_by_name, created_at, updated_at
                 )
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, now(), now())
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, now(), now())
                 """,
                 values,
             )
     return {"inserted": len(values), "errors": errors}
+
+
+@api.post("/import/pdf")
+async def import_pdf(
+    file: UploadFile = File(...), user: dict = Depends(get_current_user)
+):
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Upload a .pdf file")
+    content = await file.read()
+    try:
+        parsed = parse_schneider_pdf(content)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to parse PDF: {e}")
+    rows = parsed["rows"]
+    if not rows:
+        raise HTTPException(status_code=400, detail="No line items found in PDF")
+    columns = [
+        "part_no",
+        "description",
+        "qty",
+        "unit_price",
+        "cpq_number",
+        "cpq_date",
+        "customer",
+        "cpq_price",
+    ]
+    return {
+        "columns": columns,
+        "sample_rows": rows[:20],
+        "all_rows": rows,
+        "row_count": len(rows),
+    }
 
 
 @api.get("/stats")
@@ -887,6 +948,8 @@ async def stats(user: dict = Depends(get_current_user)):
 # ---------- Excel Export ----------
 _XLSX_HEADERS = [
     "Part No",
+    "Description",
+    "Qty",
     "CPQ #",
     "CPQ Date",
     "Customer",
@@ -897,7 +960,7 @@ _XLSX_HEADERS = [
     "Created By",
     "Created At",
 ]
-_XLSX_COL_WIDTHS = [16, 18, 12, 22, 16, 16, 12, 30, 18, 18]
+_XLSX_COL_WIDTHS = [16, 30, 8, 18, 12, 22, 16, 16, 12, 30, 18, 18]
 
 
 def _xlsx_write_header(ws) -> None:
@@ -919,6 +982,8 @@ def _xlsx_format_created(created: Any) -> str:
 def _xlsx_write_row(ws, row_idx: int, r: dict) -> None:
     values = [
         r.get("part_no", ""),
+        r.get("description", ""),
+        int(r.get("qty", 1) or 1),
         r.get("cpq_number", ""),
         r.get("cpq_date", ""),
         r.get("customer", ""),
@@ -934,10 +999,10 @@ def _xlsx_write_row(ws, row_idx: int, r: dict) -> None:
 
 
 def _xlsx_apply_styles(ws) -> None:
-    for row in ws.iter_rows(min_row=2, min_col=5, max_col=6):
+    for row in ws.iter_rows(min_row=2, min_col=7, max_col=8):
         for cell in row:
             cell.number_format = '"RM " #,##0.00'
-    for row in ws.iter_rows(min_row=2, min_col=7, max_col=7):
+    for row in ws.iter_rows(min_row=2, min_col=9, max_col=9):
         for cell in row:
             cell.number_format = "0.00%"
     for i, w in enumerate(_XLSX_COL_WIDTHS, 1):

@@ -21,6 +21,8 @@ function emptyLine() {
     unit_price: "",
     customer: "",
     cpq_price: "",
+    qty: 1,
+    description: "",
     notes: "",
   };
 }
@@ -64,6 +66,8 @@ export default function AddCPQ() {
           unit_price: Number(l.unit_price),
           customer: l.customer.trim(),
           cpq_price: Number(l.cpq_price),
+          qty: l.qty === "" ? 1 : Number(l.qty),
+          description: l.description || "",
           notes: l.notes || "",
         })),
       };
@@ -214,6 +218,29 @@ export default function AddCPQ() {
                         onChange={(e) => updateLine(i, "cpq_price", e.target.value)}
                         placeholder="0.00"
                         className="h-10 font-mono-price"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Qty</Label>
+                      <Input
+                        data-testid={CPQ_FORM.lineQty(i)}
+                        type="number"
+                        step="1"
+                        min="1"
+                        value={l.qty}
+                        onChange={(e) => updateLine(i, "qty", e.target.value)}
+                        placeholder="1"
+                        className="h-10 font-mono-price"
+                      />
+                    </div>
+                    <div className="md:col-span-2 lg:col-span-3 space-y-1.5">
+                      <Label className="text-xs">Description (optional)</Label>
+                      <Input
+                        data-testid={CPQ_FORM.lineDescription(i)}
+                        value={l.description}
+                        onChange={(e) => updateLine(i, "description", e.target.value)}
+                        placeholder="Item description"
+                        className="h-10"
                       />
                     </div>
                     <div className="md:col-span-2 lg:col-span-4 space-y-1.5">
