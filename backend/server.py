@@ -158,11 +158,11 @@ class CPQBatchCreate(BaseModel):
 
 class ImportRow(BaseModel):
     part_no: str
-    unit_price: float
+    unit_price: Optional[str] = None
     cpq_number: str
     cpq_date: str
     customer: str
-    cpq_price: float
+    cpq_price: Optional[str] = None
     qty: Optional[str] = None
     description: Optional[str] = ""
     notes: Optional[str] = ""
@@ -857,6 +857,10 @@ async def import_commit(
     created_by_name = user.get("name") or user.get("email")
     for idx, row in enumerate(payload.rows):
         try:
+            if not (row.unit_price or "").strip():
+                raise ValueError("Unit Price is required")
+            if not (row.cpq_price or "").strip():
+                raise ValueError("CPQ Price is required")
             values.append(
                 (
                     row.part_no.strip(),
@@ -875,7 +879,12 @@ async def import_commit(
         except Exception as e:
             errors.append({"row": idx, "error": str(e)})
     if not values:
-        raise HTTPException(status_code=400, detail=f"No valid rows. Errors: {errors}")
+        preview = "; ".join(f"row {e['row'] + 1}: {e['error']}" for e in errors[:5])
+        more = f" (+{len(errors) - 5} more)" if len(errors) > 5 else ""
+        raise HTTPException(
+            status_code=400,
+            detail=f"No valid rows imported ({len(errors)} error(s)). {preview}{more}",
+        )
     pool = await get_pool()
     async with pool.acquire() as conn:
         async with conn.transaction():

@@ -413,22 +413,22 @@ class TestImport:
         rows_payload = [
             {
                 "part_no": "TEST-IMP-1",
-                "unit_price": 100,
+                "unit_price": "100",
                 "cpq_number": "CPQ-IMP-A",
                 "cpq_date": "2025-05-01",
                 "customer": "ImpCust",
-                "cpq_price": 80,
+                "cpq_price": "80",
                 "qty": "4",
                 "description": "Imported widget",
                 "notes": "n1",
             },
             {
                 "part_no": "TEST-IMP-2",
-                "unit_price": 200,
+                "unit_price": "200",
                 "cpq_number": "CPQ-IMP-A",
                 "cpq_date": "2025-05-01",
                 "customer": "ImpCust",
-                "cpq_price": 150,
+                "cpq_price": "150",
                 "qty": "",
                 "notes": "n2",
             },
@@ -460,6 +460,59 @@ class TestImport:
         )
         r = sess.post(f"{API}/import/preview", files=files)
         assert r.status_code == 400
+
+    def test_import_commit_blank_unit_price_all_rows(self, admin_session):
+        """Regression: rows with blank unit_price (e.g. straight from a PDF
+        import the user hasn't filled in yet) must not 422 the whole
+        request — they should surface a clear per-row error instead."""
+        rows_payload = [
+            {
+                "part_no": "TEST-BLANKPRICE-1",
+                "unit_price": "",
+                "cpq_number": f"TEST-BLANK-{uuid.uuid4().hex[:6]}",
+                "cpq_date": "2025-05-02",
+                "customer": "BlankCust",
+                "cpq_price": "80",
+            },
+        ]
+        r = admin_session.post(f"{API}/import/commit", json={"rows": rows_payload})
+        assert r.status_code == 400, r.text
+        detail = r.json().get("detail", "")
+        assert "unit price" in detail.lower(), detail
+
+    def test_import_commit_partial_success_with_blank_row(self, admin_session, created_ids):
+        """One row missing unit_price shouldn't block the other valid rows."""
+        cpq_no = f"TEST-PARTIAL-{uuid.uuid4().hex[:6]}"
+        rows_payload = [
+            {
+                "part_no": "TEST-PARTIAL-OK",
+                "unit_price": "100",
+                "cpq_number": cpq_no,
+                "cpq_date": "2025-05-03",
+                "customer": "PartialCust",
+                "cpq_price": "90",
+            },
+            {
+                "part_no": "TEST-PARTIAL-BLANK",
+                "unit_price": "",
+                "cpq_number": cpq_no,
+                "cpq_date": "2025-05-03",
+                "customer": "PartialCust",
+                "cpq_price": "90",
+            },
+        ]
+        r = admin_session.post(f"{API}/import/commit", json={"rows": rows_payload})
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert data["inserted"] == 1
+        assert len(data["errors"]) == 1
+
+        r2 = admin_session.get(f"{API}/price-records", params={"q": cpq_no})
+        assert r2.status_code == 200
+        rows = r2.json()
+        assert len(rows) == 1
+        assert rows[0]["part_no"] == "TEST-PARTIAL-OK"
+        created_ids.append(rows[0]["id"])
 
 
 # -------------------- Auth required --------------------
