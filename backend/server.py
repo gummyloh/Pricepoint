@@ -95,6 +95,7 @@ class UserPublic(BaseModel):
     email: EmailStr
     name: str
     role: str
+    principal: Optional[str] = None
     created_at: Optional[datetime] = None
 
 
@@ -114,6 +115,7 @@ class InviteUserInput(BaseModel):
     password: str = Field(min_length=6)
     name: str = Field(min_length=1)
     role: str = Field(default="admin")
+    principal: Optional[str] = None  # required when role="admin"; ignored for role="master_admin"
 
 
 class PriceRecordCreate(BaseModel):
@@ -126,6 +128,7 @@ class PriceRecordCreate(BaseModel):
     qty: int = Field(default=1, ge=1)
     description: Optional[str] = ""
     notes: Optional[str] = ""
+    principal: Optional[str] = None  # master_admin only; ignored for principal-scoped admins
 
 
 class PriceRecordUpdate(BaseModel):
@@ -154,6 +157,7 @@ class CPQBatchCreate(BaseModel):
     cpq_number: str
     cpq_date: str
     lines: List[CPQBatchLine]
+    principal: Optional[str] = None  # master_admin only; ignored for principal-scoped admins
 
 
 class ImportRow(BaseModel):
@@ -170,6 +174,7 @@ class ImportRow(BaseModel):
 
 class ImportCommit(BaseModel):
     rows: List[ImportRow]
+    principal: Optional[str] = None  # master_admin only; ignored for principal-scoped admins
 
 
 class DuplicateCPQInput(BaseModel):
@@ -260,7 +265,7 @@ async def get_current_user(request: Request) -> dict:
 
     pool = await get_pool()
     row = await pool.fetchrow(
-        "SELECT id, email, name, role, created_at FROM users WHERE id = $1",
+        "SELECT id, email, name, role, principal, created_at FROM users WHERE id = $1",
         uuid.UUID(user_id),
     )
     if not row:
@@ -270,6 +275,7 @@ async def get_current_user(request: Request) -> dict:
         "email": row["email"],
         "name": row["name"],
         "role": row["role"],
+        "principal": row["principal"],
         "created_at": row["created_at"],
     }
 
@@ -306,6 +312,7 @@ def serialize_price_record(row: Any) -> dict:
         "qty": int(row["qty"]) if row["qty"] is not None else 1,
         "description": row["description"] or "",
         "notes": row["notes"] or "",
+        "principal": row["principal"],
         "created_by": str(row["created_by"]) if row["created_by"] else None,
         "created_by_name": row["created_by_name"],
         "created_at": row["created_at"],
@@ -335,6 +342,35 @@ def parse_iso_date(s: str) -> date:
         return pd.to_datetime(s).date()
     except Exception:
         raise HTTPException(status_code=400, detail=f"Invalid date: {s}")
+
+
+# ---------- Multi-tenancy Helpers ----------
+VALID_PRINCIPALS = {"Farg", "Hexmatic", "Nixma"}
+
+
+def resolve_principal(user: dict, requested: Optional[str] = None) -> str:
+    """Derive the principal to stamp on a new price_records row.
+
+    Principal-scoped admins are always tied to their own principal — any
+    client-supplied `principal` is ignored for them. master_admin has no
+    principal of their own and must supply one explicitly.
+    """
+    if user["role"] == "master_admin":
+        if not requested or requested not in VALID_PRINCIPALS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"principal is required for master_admin and must be one of {sorted(VALID_PRINCIPALS)}",
+            )
+        return requested
+    return user["principal"]
+
+
+def principal_filter_clause(user: dict, param_idx: int) -> tuple[str, list]:
+    """SQL fragment (no leading WHERE/AND) + params scoping a query to the
+    user's principal. Returns ("", []) for master_admin, who is unscoped."""
+    if user["role"] == "master_admin":
+        return "", []
+    return f"principal = ${param_idx}", [user["principal"]]
 
 
 # ---------- App ----------
@@ -376,9 +412,9 @@ async def register(input: RegisterInput, response: Response):
 
     row = await pool.fetchrow(
         """
-        INSERT INTO users (email, password_hash, name, role, created_at)
-        VALUES ($1, $2, $3, 'admin', now())
-        RETURNING id, email, name, role, created_at
+        INSERT INTO users (email, password_hash, name, role, principal, created_at)
+        VALUES ($1, $2, $3, 'master_admin', NULL, now())
+        RETURNING id, email, name, role, principal, created_at
         """,
         email,
         hash_password(input.password),
@@ -393,6 +429,7 @@ async def register(input: RegisterInput, response: Response):
         "email": row["email"],
         "name": row["name"],
         "role": row["role"],
+        "principal": row["principal"],
         "created_at": row["created_at"],
     }
 
@@ -402,7 +439,7 @@ async def login(input: LoginInput, response: Response):
     email = input.email.lower()
     pool = await get_pool()
     row = await pool.fetchrow(
-        "SELECT id, email, password_hash, name, role, created_at FROM users WHERE email = $1",
+        "SELECT id, email, password_hash, name, role, principal, created_at FROM users WHERE email = $1",
         email,
     )
     if not row or not verify_password(input.password, row["password_hash"]):
@@ -416,6 +453,7 @@ async def login(input: LoginInput, response: Response):
         "email": row["email"],
         "name": row["name"],
         "role": row["role"],
+        "principal": row["principal"],
         "created_at": row["created_at"],
     }
 
@@ -467,6 +505,22 @@ async def refresh_token_endpoint(request: Request, response: Response):
 async def invite_user(
     input: InviteUserInput, user: dict = Depends(get_current_user)
 ):
+    if user["role"] != "master_admin":
+        raise HTTPException(
+            status_code=403, detail="Only master_admin can invite users"
+        )
+    role = input.role or "admin"
+    if role not in ("admin", "master_admin"):
+        raise HTTPException(status_code=400, detail="Invalid role")
+    principal: Optional[str] = None
+    if role == "admin":
+        if not input.principal or input.principal not in VALID_PRINCIPALS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"principal is required for role=admin and must be one of {sorted(VALID_PRINCIPALS)}",
+            )
+        principal = input.principal
+
     email = input.email.lower()
     pool = await get_pool()
     existing = await pool.fetchval("SELECT 1 FROM users WHERE email = $1", email)
@@ -474,29 +528,35 @@ async def invite_user(
         raise HTTPException(status_code=400, detail="Email already exists")
     row = await pool.fetchrow(
         """
-        INSERT INTO users (email, password_hash, name, role, created_at)
-        VALUES ($1, $2, $3, $4, now())
-        RETURNING id, email, name, role, created_at
+        INSERT INTO users (email, password_hash, name, role, principal, created_at)
+        VALUES ($1, $2, $3, $4, $5, now())
+        RETURNING id, email, name, role, principal, created_at
         """,
         email,
         hash_password(input.password),
         input.name,
-        input.role or "admin",
+        role,
+        principal,
     )
     return {
         "_id": str(row["id"]),
         "email": row["email"],
         "name": row["name"],
         "role": row["role"],
+        "principal": row["principal"],
         "created_at": row["created_at"],
     }
 
 
 @api.get("/users", response_model=List[UserPublic])
 async def list_users(user: dict = Depends(get_current_user)):
+    if user["role"] != "master_admin":
+        raise HTTPException(
+            status_code=403, detail="Only master_admin can list users"
+        )
     pool = await get_pool()
     rows = await pool.fetch(
-        "SELECT id, email, name, role, created_at FROM users ORDER BY created_at DESC"
+        "SELECT id, email, name, role, principal, created_at FROM users ORDER BY created_at DESC"
     )
     return [
         {
@@ -504,6 +564,7 @@ async def list_users(user: dict = Depends(get_current_user)):
             "email": r["email"],
             "name": r["name"],
             "role": r["role"],
+            "principal": r["principal"],
             "created_at": r["created_at"],
         }
         for r in rows
@@ -513,7 +574,7 @@ async def list_users(user: dict = Depends(get_current_user)):
 # ---------- Price Record Routes ----------
 PR_COLS = (
     "id, part_no, unit_price, cpq_number, cpq_date, customer, "
-    "cpq_price, qty, description, notes, created_by, created_by_name, created_at, updated_at"
+    "cpq_price, qty, description, notes, principal, created_by, created_by_name, created_at, updated_at"
 )
 
 
@@ -521,14 +582,15 @@ PR_COLS = (
 async def create_price_record(
     input: PriceRecordCreate, user: dict = Depends(get_current_user)
 ):
+    principal = resolve_principal(user, input.principal)
     pool = await get_pool()
     row = await pool.fetchrow(
         f"""
         INSERT INTO price_records (
             part_no, unit_price, cpq_number, cpq_date, customer,
-            cpq_price, qty, description, notes, created_by, created_by_name, created_at, updated_at
+            cpq_price, qty, description, notes, principal, created_by, created_by_name, created_at, updated_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now(), now())
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now(), now())
         RETURNING {PR_COLS}
         """,
         input.part_no.strip(),
@@ -540,6 +602,7 @@ async def create_price_record(
         input.qty,
         input.description or "",
         input.notes or "",
+        principal,
         uuid.UUID(user["_id"]),
         user.get("name") or user.get("email"),
     )
@@ -552,6 +615,7 @@ async def create_batch(
 ):
     if not input.lines:
         raise HTTPException(status_code=400, detail="No line items provided")
+    principal = resolve_principal(user, input.principal)
     cpq_date = parse_iso_date(input.cpq_date)
     cpq_number = input.cpq_number.strip()
     created_by = uuid.UUID(user["_id"])
@@ -567,6 +631,7 @@ async def create_batch(
             line.qty,
             line.description or "",
             line.notes or "",
+            principal,
             created_by,
             created_by_name,
         )
@@ -579,9 +644,9 @@ async def create_batch(
                 """
                 INSERT INTO price_records (
                     part_no, unit_price, cpq_number, cpq_date, customer,
-                    cpq_price, qty, description, notes, created_by, created_by_name, created_at, updated_at
+                    cpq_price, qty, description, notes, principal, created_by, created_by_name, created_at, updated_at
                 )
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, now(), now())
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, now(), now())
                 """,
                 values,
             )
@@ -595,30 +660,36 @@ async def list_price_records(
     user: dict = Depends(get_current_user),
 ):
     pool = await get_pool()
+    params: list = []
+    where_clauses = []
     if q:
-        term = f"%{q.strip()}%"
-        sql = f"""
-            SELECT {PR_COLS} FROM price_records
-            WHERE part_no ILIKE $1 OR cpq_number ILIKE $1 OR customer ILIKE $1
-            ORDER BY cpq_date DESC NULLS LAST, created_at DESC
-            LIMIT $2
-        """
-        rows = await pool.fetch(sql, term, limit)
-    else:
-        sql = f"""
-            SELECT {PR_COLS} FROM price_records
-            ORDER BY cpq_date DESC NULLS LAST, created_at DESC
-            LIMIT $1
-        """
-        rows = await pool.fetch(sql, limit)
+        params.append(f"%{q.strip()}%")
+        where_clauses.append(
+            f"(part_no ILIKE ${len(params)} OR cpq_number ILIKE ${len(params)} OR customer ILIKE ${len(params)})"
+        )
+    pf_clause, pf_params = principal_filter_clause(user, len(params) + 1)
+    if pf_clause:
+        where_clauses.append(pf_clause)
+        params.extend(pf_params)
+    where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+    params.append(limit)
+    sql = f"""
+        SELECT {PR_COLS} FROM price_records
+        {where_sql}
+        ORDER BY cpq_date DESC NULLS LAST, created_at DESC
+        LIMIT ${len(params)}
+    """
+    rows = await pool.fetch(sql, *params)
     return [serialize_price_record(r) for r in rows]
 
 
 @api.get("/price-records/parts")
 async def list_parts(user: dict = Depends(get_current_user)):
     pool = await get_pool()
+    pf_clause, pf_params = principal_filter_clause(user, 1)
+    where_sql = f"WHERE {pf_clause}" if pf_clause else ""
     rows = await pool.fetch(
-        """
+        f"""
         WITH ranked AS (
           SELECT part_no, unit_price, cpq_date, created_at,
                  ROW_NUMBER() OVER (
@@ -627,12 +698,14 @@ async def list_parts(user: dict = Depends(get_current_user)):
                  ) AS rn,
                  COUNT(*) OVER (PARTITION BY part_no) AS cnt
           FROM price_records
+          {where_sql}
         )
         SELECT part_no, unit_price AS latest_unit_price,
                cpq_date AS latest_cpq_date, cnt AS record_count
         FROM ranked WHERE rn = 1
         ORDER BY part_no ASC
-        """
+        """,
+        *pf_params,
     )
     return [
         {
@@ -648,13 +721,19 @@ async def list_parts(user: dict = Depends(get_current_user)):
 @api.get("/price-records/by-part/{part_no}")
 async def get_by_part(part_no: str, user: dict = Depends(get_current_user)):
     pool = await get_pool()
+    params: list = [part_no]
+    where_sql = "WHERE part_no = $1"
+    pf_clause, pf_params = principal_filter_clause(user, len(params) + 1)
+    if pf_clause:
+        where_sql += f" AND {pf_clause}"
+        params.extend(pf_params)
     rows = await pool.fetch(
         f"""
         SELECT {PR_COLS} FROM price_records
-        WHERE part_no = $1
+        {where_sql}
         ORDER BY cpq_date DESC NULLS LAST, created_at DESC
         """,
-        part_no,
+        *params,
     )
     if not rows:
         raise HTTPException(status_code=404, detail="Part not found")
@@ -674,8 +753,14 @@ async def get_price_record(record_id: str, user: dict = Depends(get_current_user
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid id")
     pool = await get_pool()
+    params: list = [rid]
+    where_sql = "WHERE id = $1"
+    pf_clause, pf_params = principal_filter_clause(user, len(params) + 1)
+    if pf_clause:
+        where_sql += f" AND {pf_clause}"
+        params.extend(pf_params)
     row = await pool.fetchrow(
-        f"SELECT {PR_COLS} FROM price_records WHERE id = $1", rid
+        f"SELECT {PR_COLS} FROM price_records {where_sql}", *params
     )
     if not row:
         raise HTTPException(status_code=404, detail="Not found")
@@ -717,12 +802,17 @@ async def update_price_record(
         params.append(v)
     set_clauses.append(f"updated_at = now()")
     params.append(rid)
+    where_sql = f"WHERE id = ${len(params)}"
+    pf_clause, pf_params = principal_filter_clause(user, len(params) + 1)
+    if pf_clause:
+        where_sql += f" AND {pf_clause}"
+        params.extend(pf_params)
 
     pool = await get_pool()
     row = await pool.fetchrow(
         f"""
         UPDATE price_records SET {', '.join(set_clauses)}
-        WHERE id = ${len(params)}
+        {where_sql}
         RETURNING {PR_COLS}
         """,
         *params,
@@ -741,7 +831,13 @@ async def delete_price_record(
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid id")
     pool = await get_pool()
-    n = await pool.execute("DELETE FROM price_records WHERE id = $1", rid)
+    params: list = [rid]
+    where_sql = "WHERE id = $1"
+    pf_clause, pf_params = principal_filter_clause(user, len(params) + 1)
+    if pf_clause:
+        where_sql += f" AND {pf_clause}"
+        params.extend(pf_params)
+    n = await pool.execute(f"DELETE FROM price_records {where_sql}", *params)
     # asyncpg returns "DELETE <n>"
     deleted = int(n.split()[-1]) if isinstance(n, str) else 0
     if deleted == 0:
@@ -755,13 +851,18 @@ async def duplicate_cpq(
     input: DuplicateCPQInput, user: dict = Depends(get_current_user)
 ):
     pool = await get_pool()
+    params: list = [input.cpq_number, input.source_customer]
+    where_sql = "WHERE cpq_number = $1 AND customer = $2"
+    pf_clause, pf_params = principal_filter_clause(user, len(params) + 1)
+    if pf_clause:
+        where_sql += f" AND {pf_clause}"
+        params.extend(pf_params)
     source_rows = await pool.fetch(
         f"""
         SELECT {PR_COLS} FROM price_records
-        WHERE cpq_number = $1 AND customer = $2
+        {where_sql}
         """,
-        input.cpq_number,
-        input.source_customer,
+        *params,
     )
     if not source_rows:
         raise HTTPException(
@@ -797,6 +898,7 @@ async def duplicate_cpq(
                     int(src["qty"]) if src["qty"] is not None else 1,
                     src["description"] or "",
                     src["notes"] or "",
+                    src["principal"],
                     created_by,
                     created_by_name,
                 )
@@ -807,9 +909,9 @@ async def duplicate_cpq(
                 """
                 INSERT INTO price_records (
                     part_no, unit_price, cpq_number, cpq_date, customer,
-                    cpq_price, qty, description, notes, created_by, created_by_name, created_at, updated_at
+                    cpq_price, qty, description, notes, principal, created_by, created_by_name, created_at, updated_at
                 )
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, now(), now())
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, now(), now())
                 """,
                 values,
             )
@@ -851,6 +953,7 @@ async def import_preview(
 async def import_commit(
     payload: ImportCommit, user: dict = Depends(get_current_user)
 ):
+    principal = resolve_principal(user, payload.principal)
     errors: List[dict] = []
     values = []
     created_by = uuid.UUID(user["_id"])
@@ -875,6 +978,7 @@ async def import_commit(
                     parse_qty(row.qty),
                     row.description or "",
                     row.notes or "",
+                    principal,
                     created_by,
                     created_by_name,
                 )
@@ -895,9 +999,9 @@ async def import_commit(
                 """
                 INSERT INTO price_records (
                     part_no, unit_price, cpq_number, cpq_date, customer,
-                    cpq_price, qty, description, notes, created_by, created_by_name, created_at, updated_at
+                    cpq_price, qty, description, notes, principal, created_by, created_by_name, created_at, updated_at
                 )
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, now(), now())
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, now(), now())
                 """,
                 values,
             )
@@ -939,15 +1043,19 @@ async def import_pdf(
 @api.get("/stats")
 async def stats(user: dict = Depends(get_current_user)):
     pool = await get_pool()
-    total_records = await pool.fetchval("SELECT COUNT(*) FROM price_records")
+    pf_clause, pf_params = principal_filter_clause(user, 1)
+    where_sql = f"WHERE {pf_clause}" if pf_clause else ""
+    total_records = await pool.fetchval(
+        f"SELECT COUNT(*) FROM price_records {where_sql}", *pf_params
+    )
     distinct_parts = await pool.fetchval(
-        "SELECT COUNT(DISTINCT part_no) FROM price_records"
+        f"SELECT COUNT(DISTINCT part_no) FROM price_records {where_sql}", *pf_params
     )
     distinct_customers = await pool.fetchval(
-        "SELECT COUNT(DISTINCT customer) FROM price_records"
+        f"SELECT COUNT(DISTINCT customer) FROM price_records {where_sql}", *pf_params
     )
     distinct_cpq = await pool.fetchval(
-        "SELECT COUNT(DISTINCT cpq_number) FROM price_records"
+        f"SELECT COUNT(DISTINCT cpq_number) FROM price_records {where_sql}", *pf_params
     )
     return {
         "total_records": int(total_records or 0),
@@ -1043,35 +1151,30 @@ async def export_xlsx(
     user: dict = Depends(get_current_user),
 ):
     pool = await get_pool()
+    params: list = []
+    where_clauses = []
     if part_no:
-        rows = await pool.fetch(
-            f"""
-            SELECT {PR_COLS} FROM price_records
-            WHERE part_no = $1
-            ORDER BY cpq_date DESC NULLS LAST, created_at DESC
-            LIMIT 10000
-            """,
-            part_no,
-        )
+        params.append(part_no)
+        where_clauses.append(f"part_no = ${len(params)}")
     elif q:
-        term = f"%{q.strip()}%"
-        rows = await pool.fetch(
-            f"""
-            SELECT {PR_COLS} FROM price_records
-            WHERE part_no ILIKE $1 OR cpq_number ILIKE $1 OR customer ILIKE $1
-            ORDER BY cpq_date DESC NULLS LAST, created_at DESC
-            LIMIT 10000
-            """,
-            term,
+        params.append(f"%{q.strip()}%")
+        where_clauses.append(
+            f"(part_no ILIKE ${len(params)} OR cpq_number ILIKE ${len(params)} OR customer ILIKE ${len(params)})"
         )
-    else:
-        rows = await pool.fetch(
-            f"""
-            SELECT {PR_COLS} FROM price_records
-            ORDER BY cpq_date DESC NULLS LAST, created_at DESC
-            LIMIT 10000
-            """
-        )
+    pf_clause, pf_params = principal_filter_clause(user, len(params) + 1)
+    if pf_clause:
+        where_clauses.append(pf_clause)
+        params.extend(pf_params)
+    where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+    rows = await pool.fetch(
+        f"""
+        SELECT {PR_COLS} FROM price_records
+        {where_sql}
+        ORDER BY cpq_date DESC NULLS LAST, created_at DESC
+        LIMIT 10000
+        """,
+        *params,
+    )
 
     serialized = [serialize_price_record(r) for r in rows]
     title = f"Part {part_no}" if part_no else "Price Records"
@@ -1079,9 +1182,9 @@ async def export_xlsx(
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
     filename = (
-        f"farg-part-{part_no}-{stamp}.xlsx"
+        f"pricepoint-part-{part_no}-{stamp}.xlsx"
         if part_no
-        else f"farg-price-records-{stamp}.xlsx"
+        else f"pricepoint-price-records-{stamp}.xlsx"
     )
     return StreamingResponse(
         io.BytesIO(xlsx_bytes),
